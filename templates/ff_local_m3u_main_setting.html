@@ -8,7 +8,7 @@
   {{ macros.m_tab_content_start() }}
   <div class="tab-pane active" id="normal">
     <form id="setting" name="setting">
-      {{ macros.setting_input_text_and_buttons('media_path', '미디어 폴더 경로', [['select_path_btn', '탐색기 열기']], value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다.']) }}
+      {{ macros.setting_input_text_and_buttons('media_path', '미디어 폴더 경로', [['select_path_btn', '탐색기 열기']], value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다. 탐색기를 이용해 선택하세요.']) }}
       
       {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
       
@@ -23,15 +23,73 @@
   {{ macros.m_tab_content_end() }}
 </div>
 
+<div class="modal fade" id="customFolderModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">폴더 선택기</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2" style="word-break: break-all;">
+            <strong>현재 경로: </strong> <span id="custom_current_path" class="text-primary font-weight-bold">/</span>
+        </div>
+        <div class="list-group" id="custom_folder_list" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd;">
+            </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="customFolderSelectBtn">이 폴더 선택</button>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script type="text/javascript">
-// 탐색기 모달 팝업을 강제로 호출하는 확실한 스크립트입니다.
+// 폴더 목록을 서버에서 불러오는 함수
+function load_custom_folder(path) {
+    $.ajax({
+        url: '/ff_local_m3u/ajax/main/browse_folder',
+        type: "POST",
+        data: {arg1: path},
+        success: function(ret) {
+            if(ret.ret == 'success') {
+                $('#custom_current_path').text(ret.current_path);
+                var html = '';
+                for(var i=0; i<ret.items.length; i++) {
+                    html += '<a href="#" class="list-group-item list-group-item-action custom-folder-item" data-path="'+ret.items[i].path+'">' + ret.items[i].name + '</a>';
+                }
+                if(ret.items.length == 0) {
+                    html = '<div class="p-3 text-center text-muted">하위 폴더가 없습니다.</div>';
+                }
+                $('#custom_folder_list').html(html);
+            } else {
+                notify("폴더를 읽을 수 없습니다: " + ret.msg, 'danger');
+            }
+        }
+    });
+}
+
+// 1. [탐색기 열기] 버튼 클릭 시 팝업 띄우기
 $("body").on('click', '#select_path_btn', function(e){
     e.preventDefault();
-    var current_path = $('#media_path').val() || "/";
-    // 폴더 전용 탐색기 호출 (true = 폴더만 선택 가능)
-    m_select_local_file_modal("미디어 폴더 선택", current_path, true, function(result){
-        $('#media_path').val(result);
-    });
+    var start_path = $('#media_path').val() || "/";
+    load_custom_folder(start_path);
+    $('#customFolderModal').modal('show');
+});
+
+// 2. 팝업 창 안에서 폴더 클릭 시 해당 폴더로 이동
+$("body").on('click', '.custom-folder-item', function(e){
+    e.preventDefault();
+    load_custom_folder($(this).data('path'));
+});
+
+// 3. [이 폴더 선택] 버튼 클릭 시 입력창에 경로 적용
+$("body").on('click', '#customFolderSelectBtn', function(e){
+    $('#media_path').val($('#custom_current_path').text());
+    $('#customFolderModal').modal('hide');
 });
 </script>
 {% endblock %}
