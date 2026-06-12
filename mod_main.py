@@ -8,7 +8,7 @@ class ModuleMain(PluginModuleBase):
         super(ModuleMain, self).__init__(P, name="main", first_menu="setting")
         self.db_default = {
             f"{self.name}_db_version": "1",
-            "media_path": "",
+            "media_path": "",  # 임시 경로 완전히 삭제 (빈 칸으로 시작)
             "extensions": ".mp4,.mkv,.avi,.ts",
         }
 
@@ -25,6 +25,7 @@ class ModuleMain(PluginModuleBase):
                     arg[key] = value
 
             arg["api_m3u"] = logic.get_api_url(req, "m3u")
+            
             return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
             
         except Exception as e:
@@ -38,11 +39,6 @@ class ModuleMain(PluginModuleBase):
             if command == "get_list":
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
-            
-            # 여기서 저장을 완벽하게 처리합니다.
-            elif command == "setting_save":
-                ret = P.ModelSetting.save_from_req(req)
-                return jsonify({"ret": "success"})
             
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
                 
