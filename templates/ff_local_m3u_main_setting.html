@@ -8,9 +8,17 @@
   {{ macros.m_tab_content_start() }}
   <div class="tab-pane active" id="normal">
     <form id="setting" name="setting">
-      {{ macros.setting_input_text_and_buttons('media_path', '미디어 폴더 경로', [['select_media_path_btn', '경로 선택']], value=arg.get('media_path', '/home/ysyou/docker/media'), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다.', '경로 선택 버튼을 눌러 서버의 폴더를 직접 탐색하고 선택할 수 있습니다.']) }}
       
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
+      <div class="form-group row">
+        <label class="col-sm-3 control-label">재생 목록 관리</label>
+        <div class="col-sm-9">
+          <div class="mb-2">
+            {{ macros.m_button('select_file_btn', '파일 찾아보기 및 추가', 'success') }}
+          </div>
+          <textarea id="custom_file_list" name="custom_file_list" class="form-control" rows="10" placeholder="추가된 파일 경로가 여기에 표시됩니다. 직접 입력도 가능합니다.">{{ arg.get('custom_file_list', '') }}</textarea>
+          <small class="form-text text-muted">각 줄에 추가할 파일의 절대 경로가 하나씩 들어갑니다. (목록에서 삭제하려면 해당 줄을 지우고 저장하세요)</small>
+        </div>
+      </div>
       
       <div class="mt-3">
         {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
@@ -24,16 +32,20 @@
 </div>
 
 <script type="text/javascript">
-// '경로 선택' 버튼 클릭 시 내장 탐색기 모달을 띄우는 스크립트입니다.
-$("body").on('click', '#select_media_path_btn', function(e){
+// 파일 탐색기를 열고 선택한 파일을 텍스트 창 맨 아랫줄에 추가합니다.
+$("body").on('click', '#select_file_btn', function(e){
     e.preventDefault();
-    var current_path = $('#media_path').val();
-    
-    // m_select_local_file_modal(모달제목, 초기경로, 폴더만선택여부, 콜백함수)
-    // 폴더만 선택해야 하므로 세 번째 인자를 true로 줍니다.
-    m_select_local_file_modal("미디어 폴더 선택", current_path, true, function(result){
-        // 모달에서 선택한 경로를 input 창에 자동으로 입력합니다.
-        $('#media_path').val(result);
+    // 폴더가 아닌 '파일'을 선택해야 하므로 세 번째 인자를 false로 줍니다.
+    m_select_local_file_modal("미디어 파일 선택", "/", false, function(result){
+        var textarea = $('#custom_file_list');
+        var current_val = textarea.val();
+        
+        if (current_val) {
+            textarea.val(current_val + '\n' + result);
+        } else {
+            textarea.val(result);
+        }
+        notify('목록에 추가되었습니다. 하단의 [저장] 버튼을 눌러야 반영됩니다.', 'info');
     });
 });
 </script>
