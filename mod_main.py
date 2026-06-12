@@ -35,16 +35,19 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return error_msg
 
-    def process_command(self, command, arg1, arg2, arg3, req):
-        ret = {"ret": "success"}
+def process_command(self, command, arg1, arg2, arg3, req):
         try:
             if command == "get_list":
-                ret["list"] = logic.get_media_list(req)
-                
+                ret = {"ret": "success", "list": logic.get_media_list(req)}
+                return jsonify(ret)
+            
+            # 저장 버튼 등 프레임워크 기본 명령어를 처리하도록 부모 클래스(PluginModuleBase) 호출
+            return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
+            
         except Exception as e:
             P.logger.error(f"Exception:{str(e)}")
             P.logger.error(traceback.format_exc())
-            ret = {"ret": "error", "msg": str(e)}
+            return jsonify({"ret": "error", "msg": str(e)})
             
         return jsonify(ret)
 
