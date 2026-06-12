@@ -32,10 +32,8 @@
 </div>
 
 <script type="text/javascript">
-// 파일 탐색기를 열고 선택한 파일을 텍스트 창 맨 아랫줄에 추가합니다.
 $("body").on('click', '#select_file_btn', function(e){
     e.preventDefault();
-    // 폴더가 아닌 '파일'을 선택해야 하므로 세 번째 인자를 false로 줍니다.
     m_select_local_file_modal("미디어 파일 선택", "/", false, function(result){
         var textarea = $('#custom_file_list');
         var current_val = textarea.val();
