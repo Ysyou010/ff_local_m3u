@@ -8,8 +8,7 @@ class ModuleMain(PluginModuleBase):
         super(ModuleMain, self).__init__(P, name="main", first_menu="setting")
         self.db_default = {
             f"{self.name}_db_version": "1",
-            "media_path": "/home/ysyou/docker/media",
-            "extensions": ".mp4,.mkv,.avi,.ts",
+            "custom_file_list": "", # 경로 리스트를 저장할 변수
         }
 
     def plugin_load(self):
@@ -31,7 +30,6 @@ class ModuleMain(PluginModuleBase):
             
         except Exception as e:
             import traceback
-            # 500 에러 대신 화면에 에러 원인을 강제로 출력
             error_msg = f"<h1>에러 원인 분석</h1><pre>{traceback.format_exc()}</pre>"
             P.logger.error(traceback.format_exc())
             return error_msg
@@ -55,8 +53,8 @@ class ModuleMain(PluginModuleBase):
                 return logic.make_m3u(req)
             
             if sub.startswith("play/ffmpeg/"):
-                encoded_name = sub.split("play/ffmpeg/")[1]
-                return logic.play_ffmpeg_copy(encoded_name)
+                encoded_path = sub.split("play/ffmpeg/")[1]
+                return logic.play_ffmpeg_copy(encoded_path)
                 
         except Exception as e:
             P.logger.error(f"Exception:{str(e)}")
