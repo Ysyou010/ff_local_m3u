@@ -32,12 +32,16 @@
 </div>
 
 <script type="text/javascript">
+// 프레임워크에 맞는 정확한 함수명(globalSelectLocalFile)으로 수정했습니다.
 $("body").on('click', '#select_file_btn', function(e){
     e.preventDefault();
-    m_select_local_file_modal("미디어 파일 선택", "/", false, function(result){
+    
+    // 파일 탐색기를 엽니다. 초기 경로는 '/' 입니다.
+    globalSelectLocalFile("미디어 파일 선택", "/", function(result){
         var textarea = $('#custom_file_list');
         var current_val = textarea.val();
         
+        // 기존 텍스트가 있으면 줄바꿈 후 추가하고, 없으면 그냥 추가합니다.
         if (current_val) {
             textarea.val(current_val + '\n' + result);
         } else {
