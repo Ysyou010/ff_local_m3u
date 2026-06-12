@@ -42,7 +42,6 @@ def _safe_b64decode(text):
 
 def get_media_files():
     media_path = P.ModelSetting.get("media_path")
-    # 경로가 지정되지 않은 경우(빈 칸) 에러 없이 빈 리스트 반환
     if not media_path:
         return []
         
@@ -52,18 +51,15 @@ def get_media_files():
     
     file_list = []
     
-    # 1. 경로가 단일 파일인 경우
     if os.path.isfile(media_path):
         if media_path.lower().endswith(valid_exts):
             file_list.append(os.path.basename(media_path))
         return file_list
 
-    # 2. 경로가 올바르지 않은 경우
     if not os.path.isdir(media_path):
         P.logger.error(f"[로컬 M3U] 올바르지 않은 경로입니다: {media_path}")
         return file_list
 
-    # 3. 폴더인 경우 하위 경로 탐색
     for root, dirs, files in os.walk(media_path, followlinks=True):
         for file_name in files:
             if file_name.lower().endswith(valid_exts):
