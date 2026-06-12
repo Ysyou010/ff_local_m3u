@@ -24,7 +24,7 @@ class ModuleMain(PluginModuleBase):
                 if key not in arg:
                     arg[key] = value
 
-            # logic.py의 범용 API URL 생성기 사용
+            # logic.py의 범용 API URL 생성기를 사용하여 안전하게 주소 생성
             arg["api_m3u"] = logic.get_api_url(req, "m3u")
             
             return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
@@ -41,15 +41,13 @@ class ModuleMain(PluginModuleBase):
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
             
-            # 저장 버튼 등 프레임워크 기본 명령어를 처리하도록 부모 클래스(PluginModuleBase) 호출
+            # 프레임워크의 기본 명령어(설정 저장 등)를 정상적으로 처리하기 위해 부모 클래스 호출
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
-            
+                
         except Exception as e:
             P.logger.error(f"Exception:{str(e)}")
             P.logger.error(traceback.format_exc())
             return jsonify({"ret": "error", "msg": str(e)})
-            
-        return jsonify(ret)
 
     def process_api(self, sub, req):
         try:
