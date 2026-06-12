@@ -41,6 +41,7 @@ def _safe_b64decode(text):
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
 # 하위 폴더까지 모두 스캔하도록 업그레이드된 함수
+# (위쪽 코드는 그대로 두시고, 이 함수만 교체해 주세요)
 def get_media_files():
     media_path = P.ModelSetting.get("media_path")
     ext_setting = P.ModelSetting.get("extensions")
@@ -48,14 +49,15 @@ def get_media_files():
     
     file_list = []
     if not os.path.isdir(media_path):
+        P.logger.error(f"[로컬 M3U] 폴더 경로를 찾을 수 없습니다: {media_path}")
         return file_list
 
-    # os.walk를 사용하여 폴더 안의 폴더까지 전부 탐색
-    for root, dirs, files in os.walk(media_path):
+    # followlinks=True 옵션을 추가하여 심볼릭 링크나 도커 마운트 폴더도 정상적으로 추적하도록 수정
+    for root, dirs, files in os.walk(media_path, followlinks=True):
         for file_name in files:
             if file_name.lower().endswith(valid_exts):
                 full_path = os.path.join(root, file_name)
-                # 최상위 경로를 제외한 상대 경로 생성 (예: 드라마/시즌1/1화.mp4)
+                # 최상위 경로를 제외한 상대 경로 생성
                 rel_path = os.path.relpath(full_path, media_path)
                 # 윈도우 환경 대비 역슬래시를 슬래시로 변경
                 rel_path = rel_path.replace('\\', '/')
