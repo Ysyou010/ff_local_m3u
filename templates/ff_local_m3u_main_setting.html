@@ -12,7 +12,9 @@
       
       {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
       
-      {{ macros.setting_button([['globalSettingSaveBtn', '저장']]) }}
+      <div class="mt-3">
+        {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
+      </div>
     </form>
     {{ macros.m_hr() }}
     
