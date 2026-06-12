@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div>
+  {{ macros.m_tab_head_start() }}
+    {{ macros.m_tab_head('normal', '설정', true) }}
+  {{ macros.m_tab_head_end() }}
+
+  {{ macros.m_tab_content_start() }}
+  <div class="tab-pane active" id="normal">
+    <form id="setting" name="setting">
+      {{ macros.setting_input_text('media_path', '미디어 폴더 경로', value=arg['media_path'], desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다.', '예: /home/ysyou/docker/media']) }}
+      
+      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg['extensions'], desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
+      
+      {{ macros.setting_button([['globalSettingSaveBtn', '저장']]) }}
+    </form>
+    {{ macros.m_hr() }}
+    
+    {{ macros.setting_input_text_and_buttons('api_m3u', 'M3U API 주소', [['globalCliboardBtn', '복사'], ['globalOpenBtn', '새창']], value=arg['api_m3u'], desc=['외부 플레이어(IPTV 앱 등)에 등록할 M3U 주소입니다.']) }}
+  </div>
+  {{ macros.m_tab_content_end() }}
+</div>
+{% endblock %}
