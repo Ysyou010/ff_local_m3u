@@ -1,16 +1,7 @@
 import traceback
 from flask import Response, request, jsonify, render_template
-from framework import SystemModelSetting
 from .setup import *
 from . import logic
-
-def get_apikey():
-    try:
-        if SystemModelSetting.get_bool("use_apikey"):
-            return str(SystemModelSetting.get("apikey") or "").strip()
-    except:
-        pass
-    return ""
 
 class ModuleMain(PluginModuleBase):
     def __init__(self, P):
@@ -33,12 +24,8 @@ class ModuleMain(PluginModuleBase):
                 if key not in arg:
                     arg[key] = value
 
-            host_url = req.host_url.rstrip('/')
-            
-            # API 키를 주소 뒤에 붙여줍니다.
-            apikey = get_apikey()
-            api_qs = f"?apikey={apikey}" if apikey else ""
-            arg["api_m3u"] = f"{host_url}/{P.package_name}/api/m3u{api_qs}"
+            # logic.py의 범용 API URL 생성기 사용
+            arg["api_m3u"] = logic.get_api_url(req, "m3u")
             
             return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
             
