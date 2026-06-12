@@ -2,6 +2,7 @@ import os
 import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
+from urllib.parse import urlencode
 from flask import Response, stream_with_context
 from framework import SystemModelSetting
 from .setup import P
@@ -13,6 +14,24 @@ def get_apikey():
     except:
         pass
     return ""
+
+def get_base_url(req):
+    try:
+        return req.url_root.rstrip("/")
+    except:
+        return ""
+
+def get_api_url(req, endpoint, params=None):
+    if params is None:
+        params = {}
+    apikey = get_apikey()
+    if apikey:
+        params['apikey'] = apikey
+        
+    base = get_base_url(req)
+    query = urlencode(params)
+    url = f"{base}/{P.package_name}/api/{endpoint}" if base else f"/{P.package_name}/api/{endpoint}"
+    return f"{url}?{query}" if query else url
 
 def _safe_b64encode(text):
     return urlsafe_b64encode(str(text).encode('utf-8')).decode('utf-8').rstrip('=')
@@ -38,14 +57,12 @@ def get_media_files():
 
 def get_media_list(req):
     files = get_media_files()
-    host_url = req.host_url.rstrip('/')
-    apikey = get_apikey()
-    api_qs = f"?apikey={apikey}" if apikey else ""
     result = []
     
     for idx, file_name in enumerate(files, 1):
         encoded_name = _safe_b64encode(file_name)
-        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_name}{api_qs}"
+        # 규격화된 URL 빌더 사용
+        play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
         
         result.append({
             "idx": idx,
@@ -57,14 +74,12 @@ def get_media_list(req):
 
 def make_m3u(req):
     files = get_media_files()
-    host_url = req.host_url.rstrip('/')
-    apikey = get_apikey()
-    api_qs = f"?apikey={apikey}" if apikey else ""
-    
     lines = ["#EXTM3U\n"]
+    
     for index, file_name in enumerate(files, 1):
         encoded_name = _safe_b64encode(file_name)
-        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_name}{api_qs}"
+        # 규격화된 URL 빌더 사용
+        play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
         
         lines.append(f'#EXTINF:-1 tvg-name="{file_name}" tvg-chno="{index}",{file_name}\n{play_url}\n')
         
