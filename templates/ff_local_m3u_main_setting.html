@@ -13,7 +13,7 @@
         <label class="col-sm-3 control-label">재생 목록 관리</label>
         <div class="col-sm-9">
           <div class="mb-2">
-            {{ macros.m_button('select_file_btn', '파일 찾아보기 및 추가', 'success') }}
+            {{ macros.m_button('select_file_btn', '파일 찾아보기 및 추가') }}
           </div>
           <textarea id="custom_file_list" name="custom_file_list" class="form-control" rows="10" placeholder="추가된 파일 경로가 여기에 표시됩니다. 직접 입력도 가능합니다.">{{ arg.get('custom_file_list', '') }}</textarea>
           <small class="form-text text-muted">각 줄에 추가할 파일의 절대 경로가 하나씩 들어갑니다. (목록에서 삭제하려면 해당 줄을 지우고 저장하세요)</small>
