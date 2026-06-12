@@ -12,6 +12,7 @@ setting = {
         "name": "로컬 미디어 M3U",
         "list": [
             {"uri": "main/setting", "name": "설정"},
+            {"uri": "main/list", "name": "목록"},
             {"uri": "log", "name": "로그"},
         ],
     },
