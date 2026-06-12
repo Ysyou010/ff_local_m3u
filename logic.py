@@ -40,28 +40,36 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
-# 하위 폴더까지 모두 스캔하도록 업그레이드된 함수
-# (위쪽 코드는 그대로 두시고, 이 함수만 교체해 주세요)
 def get_media_files():
     media_path = P.ModelSetting.get("media_path")
+    if media_path:
+        media_path = media_path.strip()
+    else:
+        return []
+        
     ext_setting = P.ModelSetting.get("extensions")
     valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
     
     file_list = []
-    if not os.path.isdir(media_path):
-        P.logger.error(f"[로컬 M3U] 폴더 경로를 찾을 수 없습니다: {media_path}")
+    
+    # 1. 사용자가 폴더 대신 특정 파일(.mp4 등) 경로를 직접 입력한 경우
+    if os.path.isfile(media_path):
+        if media_path.lower().endswith(valid_exts):
+            file_list.append(os.path.basename(media_path))
         return file_list
 
-    # followlinks=True 옵션을 추가하여 심볼릭 링크나 도커 마운트 폴더도 정상적으로 추적하도록 수정
+    # 2. 올바르지 않은 경로인 경우 에러 로그 출력
+    if not os.path.isdir(media_path):
+        P.logger.error(f"[로컬 M3U] 올바르지 않은 경로입니다: {media_path}")
+        return file_list
+
+    # 3. 폴더인 경우 하위 폴더까지 모두 스캔
     for root, dirs, files in os.walk(media_path, followlinks=True):
         for file_name in files:
             if file_name.lower().endswith(valid_exts):
                 full_path = os.path.join(root, file_name)
-                # 최상위 경로를 제외한 상대 경로 생성
                 rel_path = os.path.relpath(full_path, media_path)
-                # 윈도우 환경 대비 역슬래시를 슬래시로 변경
                 rel_path = rel_path.replace('\\', '/')
-                
                 file_list.append(rel_path)
                 
     return sorted(file_list)
@@ -76,7 +84,7 @@ def get_media_list(req):
         
         result.append({
             "idx": idx,
-            "name": file_path, # 파일명 대신 폴더가 포함된 상대경로를 표시
+            "name": file_path,
             "url": play_url
         })
         
@@ -98,10 +106,17 @@ def play_ffmpeg_copy(encoded_name):
     try:
         rel_path = _safe_b64decode(encoded_name)
         media_path = P.ModelSetting.get("media_path")
-        full_path = os.path.join(media_path, rel_path)
+        if media_path:
+            media_path = media_path.strip()
+            
+        # 파일 경로 직접 입력 여부에 따라 전체 경로를 다르게 조합
+        if os.path.isfile(media_path):
+            full_path = media_path
+        else:
+            full_path = os.path.join(media_path, rel_path)
         
         if not os.path.isfile(full_path):
-            return Response(f"File not found: {rel_path}", status=404)
+            return Response(f"File not found: {full_path}", status=404)
 
         cmd = [
             "ffmpeg", 
@@ -118,7 +133,7 @@ def play_ffmpeg_copy(encoded_name):
             "-"
         ]
         
-        P.logger.info(f"FFmpeg Play Start: {rel_path}")
+        P.logger.info(f"FFmpeg Play Start: {full_path}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
@@ -132,7 +147,7 @@ def play_ffmpeg_copy(encoded_name):
             finally:
                 if proc.poll() is None:
                     proc.kill()
-                P.logger.info(f"FFmpeg Play End: {rel_path}")
+                P.logger.info(f"FFmpeg Play End: {full_path}")
 
         return Response(generate(), mimetype="video/MP2T")
         
