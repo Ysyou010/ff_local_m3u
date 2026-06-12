@@ -35,7 +35,7 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return error_msg
 
-def process_command(self, command, arg1, arg2, arg3, req):
+    def process_command(self, command, arg1, arg2, arg3, req):
         try:
             if command == "get_list":
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
