@@ -1,6 +1,6 @@
 import traceback
 from flask import Response, request, jsonify, render_template
-from .setup import P
+from .setup import *
 from . import logic
 
 class ModuleMain(PluginModuleBase):
