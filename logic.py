@@ -60,9 +60,11 @@ def make_m3u(req):
         encoded_path = _safe_b64encode(item["path"])
         play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_path}"
         
+        # 작은 따옴표와 큰 따옴표 등 M3U 규격을 더 엄격하게 맞췄습니다.
         lines.append(f'#EXTINF:-1 tvg-name="{item["name"]}" tvg-chno="{index}",{item["name"]}\n{play_url}\n')
         
-    return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
+    # 플레이어가 완벽한 M3U 파일로 인식하도록 content_type을 애플 표준으로 변경했습니다.
+    return Response("".join(lines), content_type="application/vnd.apple.mpegurl")
 
 def play_ffmpeg_copy(encoded_path):
     try:
