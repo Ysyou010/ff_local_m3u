@@ -41,7 +41,12 @@ class ModuleMain(PluginModuleBase):
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
             
-            # 프레임워크의 기본 명령어(설정 저장 등)를 정상적으로 처리하기 위해 부모 클래스 호출
+            # --- 추가된 부분: 확실한 설정 저장 로직 ---
+            elif command == "save_setting":
+                ret = P.ModelSetting.save_from_req(req)
+                return jsonify({"ret": "success", "msg": "설정이 저장되었습니다."})
+            # -------------------------------------------
+            
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
                 
         except Exception as e:
