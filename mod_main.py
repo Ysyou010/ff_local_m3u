@@ -1,14 +1,24 @@
 import traceback
 from flask import Response, request, jsonify, render_template
+from framework import SystemModelSetting
 from .setup import *
 from . import logic
+
+def get_apikey():
+    try:
+        if SystemModelSetting.get_bool("use_apikey"):
+            return str(SystemModelSetting.get("apikey") or "").strip()
+    except:
+        pass
+    return ""
 
 class ModuleMain(PluginModuleBase):
     def __init__(self, P):
         super(ModuleMain, self).__init__(P, name="main", first_menu="setting")
         self.db_default = {
             f"{self.name}_db_version": "1",
-            "custom_file_list": "", # 경로 리스트를 저장할 변수
+            "media_path": "/home/ysyou/docker/media",
+            "extensions": ".mp4,.mkv,.avi,.ts",
         }
 
     def plugin_load(self):
@@ -24,7 +34,11 @@ class ModuleMain(PluginModuleBase):
                     arg[key] = value
 
             host_url = req.host_url.rstrip('/')
-            arg["api_m3u"] = f"{host_url}/{P.package_name}/api/m3u"
+            
+            # API 키를 주소 뒤에 붙여줍니다.
+            apikey = get_apikey()
+            api_qs = f"?apikey={apikey}" if apikey else ""
+            arg["api_m3u"] = f"{host_url}/{P.package_name}/api/m3u{api_qs}"
             
             return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
             
@@ -53,8 +67,8 @@ class ModuleMain(PluginModuleBase):
                 return logic.make_m3u(req)
             
             if sub.startswith("play/ffmpeg/"):
-                encoded_path = sub.split("play/ffmpeg/")[1]
-                return logic.play_ffmpeg_copy(encoded_path)
+                encoded_name = sub.split("play/ffmpeg/")[1]
+                return logic.play_ffmpeg_copy(encoded_name)
                 
         except Exception as e:
             P.logger.error(f"Exception:{str(e)}")
