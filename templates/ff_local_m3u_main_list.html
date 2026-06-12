@@ -7,8 +7,9 @@
     <table id="result_table" class="table table-sm table-striped table-hover">
         <thead class="thead-dark"><tr>
             <th style="width:5%; text-align:center;">No</th>
-            <th style="width:65%; text-align:left;">파일명</th>
-            <th style="width:30%; text-align:center;">Action</th>
+            <th style="width:25%; text-align:left;">파일명</th>
+            <th style="width:50%; text-align:left;">경로</th>
+            <th style="width:20%; text-align:center;">Action</th>
         </tr></thead>
         <tbody id="list_tbody">
         </tbody>
@@ -45,13 +46,14 @@ function load_list() {
 function make_list(data) {
     var str = '';
     if (data.length == 0) {
-        str += '<tr><td colspan="3" style="text-align:center;">조건에 맞는 파일이 없습니다. 설정 탭에서 경로와 확장자를 확인하세요.</td></tr>';
+        str += '<tr><td colspan="4" style="text-align:center;">등록된 파일이 없거나 경로가 잘못되었습니다. 설정 탭에서 파일을 추가하세요.</td></tr>';
     } else {
         for (var i = 0; i < data.length; i++) {
             var item = data[i];
             str += '<tr>';
             str += '<td style="text-align:center;">' + item.idx + '</td>';
-            str += '<td style="text-align:left; word-break:break-all;">' + item.name + '</td>';
+            str += '<td style="text-align:left; word-break:break-all;"><b>' + item.name + '</b></td>';
+            str += '<td style="text-align:left; word-break:break-all; font-size:0.85em; color:gray;">' + item.path + '</td>';
             
             var buttons = '';
             buttons += j_button('play_btn', '<i class="fa fa-play px-1"></i> 재생', {'url': item.url, 'name': item.name}, 'secondary', false, true);
