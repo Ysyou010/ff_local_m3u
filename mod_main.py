@@ -8,7 +8,7 @@ class ModuleMain(PluginModuleBase):
         super(ModuleMain, self).__init__(P, name="main", first_menu="setting")
         self.db_default = {
             f"{self.name}_db_version": "1",
-            "media_path": "",  # 임시 경로 완전히 삭제 (빈 칸으로 시작)
+            "media_path": "",
             "extensions": ".mp4,.mkv,.avi,.ts",
         }
 
@@ -39,6 +39,33 @@ class ModuleMain(PluginModuleBase):
             if command == "get_list":
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
+            
+            elif command == "setting_save":
+                ret = P.ModelSetting.save_from_req(req)
+                return jsonify({"ret": "success"})
+                
+            # --- 고장 난 프레임워크 탐색기를 대체할 자체 탐색기 엔진 ---
+            elif command == "browse_folder":
+                import os
+                target_path = arg1 or "/"
+                if not os.path.isdir(target_path):
+                    target_path = "/"
+                try:
+                    items = []
+                    # 상위 폴더로 가기 버튼
+                    if target_path != "/":
+                        items.append({"name": "📂 .. (상위 폴더로 이동)", "path": os.path.dirname(target_path)})
+                    
+                    # 현재 경로의 폴더들만 스캔
+                    for name in sorted(os.listdir(target_path)):
+                        p = os.path.join(target_path, name)
+                        if os.path.isdir(p):
+                            items.append({"name": f"📁 {name}", "path": p})
+                            
+                    return jsonify({"ret": "success", "current_path": target_path, "items": items})
+                except Exception as e:
+                    return jsonify({"ret": "error", "msg": str(e)})
+            # -------------------------------------------------------------
             
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
                 
