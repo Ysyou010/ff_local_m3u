@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<div>
+  {{ macros.m_button_group([['list_reload_btn', '새로고침']])}}
+  
+  <div id="list_div" class="mt-3 mb-3">
+    <table id="result_table" class="table table-sm table-striped table-hover">
+        <thead class="thead-dark"><tr>
+            <th style="width:5%; text-align:center;">No</th>
+            <th style="width:65%; text-align:left;">파일명</th>
+            <th style="width:30%; text-align:center;">Action</th>
+        </tr></thead>
+        <tbody id="list_tbody">
+        </tbody>
+    </table>
+  </div>
+</div>
+
+<form name="playform">
+  <input type="hidden" id="play_title" name="play_title">
+  <input type="hidden" id="play_source_src"  name="play_source_src">
+  <input type="hidden" id="play_source_type"  name="play_source_type">
+</form>
+
+<script type="text/javascript">
+$(document).ready(function(){
+    load_list();
+});
+
+$("body").on('click', '#list_reload_btn', function(e){
+    e.preventDefault();
+    load_list();
+});
+
+function load_list() {
+    globalSendCommand('get_list', null, null, null, function(ret){
+        if(ret.ret == 'success'){
+            make_list(ret.list);
+        } else {
+            notify(ret.msg, 'danger');
+        }
+    });
+}
+
+function make_list(data) {
+    var str = '';
+    if (data.length == 0) {
+        str += '<tr><td colspan="3" style="text-align:center;">조건에 맞는 파일이 없습니다. 설정 탭에서 경로와 확장자를 확인하세요.</td></tr>';
+    } else {
+        for (var i = 0; i < data.length; i++) {
+            var item = data[i];
+            str += '<tr>';
+            str += '<td style="text-align:center;">' + item.idx + '</td>';
+            str += '<td style="text-align:left; word-break:break-all;">' + item.name + '</td>';
+            
+            var buttons = '';
+            buttons += j_button('play_btn', '<i class="fa fa-play px-1"></i> 재생', {'url': item.url, 'name': item.name}, 'secondary', false, true);
+            buttons += j_button('copy_btn', '<i class="fa fa-clipboard px-1"></i> 주소', {'url': item.url}, 'secondary', false, true);
+            
+            str += '<td style="text-align:center;">' + j_button_group(buttons) + '</td>';
+            str += '</tr>';
+        }
+    }
+    $('#list_tbody').html(str);
+}
+
+$("body").on('click', '#play_btn', function(e){
+    e.preventDefault();
+    var url = $(this).data('url');
+    var name = $(this).data('name');
+    var form = document.playform;
+    
+    var popupWidth = 980;
+    var leftPos = screen.width - popupWidth;
+    
+    window.open('', url, "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
+    
+    form.action = "/videojs";
+    form.method = "post";
+    form.target = url;
+    
+    $('#play_title').val(name);
+    $('#play_source_src').val(url);
+    $('#play_source_type').val('video/mp2t'); 
+    form.submit();
+});
+
+$("body").on('click', '#copy_btn', function(e){
+    e.preventDefault();
+    var url = $(this).data('url');
+    var str = url + '<br><br>';
+    str += j_button_group(j_button('globalCliboardBtn', '클립보드 복사', {'text':url}, 'success'));
+    showModal(str, '스트리밍 주소', false);
+});
+</script>
+{% endblock %}
