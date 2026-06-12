@@ -41,55 +41,50 @@ def _safe_b64decode(text):
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
 def get_media_files():
-    media_paths_raw = P.ModelSetting.get("media_path")
-    if not media_paths_raw:
+    media_path = P.ModelSetting.get("media_path")
+    # 경로가 지정되지 않은 경우(빈 칸) 에러 없이 빈 리스트 반환
+    if not media_path:
         return []
         
-    # 엔터(줄바꿈) 단위로 경로들을 쪼개서 리스트로 만듭니다.
-    media_paths = [p.strip() for p in media_paths_raw.split('\n') if p.strip()]
-    
+    media_path = media_path.strip()
     ext_setting = P.ModelSetting.get("extensions")
     valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
     
     file_list = []
     
-    for path in media_paths:
-        # 1. 단일 파일인 경우
-        if os.path.isfile(path):
-            if path.lower().endswith(valid_exts):
-                file_list.append(path.replace('\\', '/'))
-            continue
-            
-        # 2. 잘못된 경로인 경우 (로그 출력)
-        if not os.path.isdir(path):
-            P.logger.error(f"[로컬 M3U] 올바르지 않은 경로입니다: {path}")
-            continue
+    # 1. 경로가 단일 파일인 경우
+    if os.path.isfile(media_path):
+        if media_path.lower().endswith(valid_exts):
+            file_list.append(os.path.basename(media_path))
+        return file_list
 
-        # 3. 폴더인 경우 하위 모두 탐색
-        for root, dirs, files in os.walk(path, followlinks=True):
-            for file_name in files:
-                if file_name.lower().endswith(valid_exts):
-                    full_path = os.path.join(root, file_name)
-                    file_list.append(full_path.replace('\\', '/'))
-                    
-    # 중복 제거 후 정렬
-    return sorted(list(set(file_list)))
+    # 2. 경로가 올바르지 않은 경우
+    if not os.path.isdir(media_path):
+        P.logger.error(f"[로컬 M3U] 올바르지 않은 경로입니다: {media_path}")
+        return file_list
+
+    # 3. 폴더인 경우 하위 경로 탐색
+    for root, dirs, files in os.walk(media_path, followlinks=True):
+        for file_name in files:
+            if file_name.lower().endswith(valid_exts):
+                full_path = os.path.join(root, file_name)
+                rel_path = os.path.relpath(full_path, media_path)
+                rel_path = rel_path.replace('\\', '/')
+                file_list.append(rel_path)
+                
+    return sorted(file_list)
 
 def get_media_list(req):
     files = get_media_files()
     result = []
     
-    for idx, full_path in enumerate(files, 1):
-        # 전체 절대경로를 통째로 인코딩합니다.
-        encoded_name = _safe_b64encode(full_path)
+    for idx, file_path in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_path)
         play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
-        
-        # 화면에는 파일명과 폴더 구조를 보여주기 위해 가공
-        display_name = os.path.basename(full_path)
         
         result.append({
             "idx": idx,
-            "name": display_name,
+            "name": file_path,
             "url": play_url
         })
         
@@ -99,19 +94,28 @@ def make_m3u(req):
     files = get_media_files()
     lines = ["#EXTM3U\n"]
     
-    for index, full_path in enumerate(files, 1):
-        encoded_name = _safe_b64encode(full_path)
+    for index, file_path in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_path)
         play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
-        display_name = os.path.basename(full_path)
         
-        lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
+        lines.append(f'#EXTINF:-1 tvg-name="{file_path}" tvg-chno="{index}",{file_path}\n{play_url}\n')
         
     return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
 
 def play_ffmpeg_copy(encoded_name):
     try:
-        # 인코딩된 것 자체가 완벽한 절대경로입니다.
-        full_path = _safe_b64decode(encoded_name)
+        rel_path = _safe_b64decode(encoded_name)
+        media_path = P.ModelSetting.get("media_path")
+        
+        if not media_path:
+            return Response("Media path is not configured.", status=400)
+            
+        media_path = media_path.strip()
+            
+        if os.path.isfile(media_path):
+            full_path = media_path
+        else:
+            full_path = os.path.join(media_path, rel_path)
         
         if not os.path.isfile(full_path):
             return Response(f"File not found: {full_path}", status=404)
