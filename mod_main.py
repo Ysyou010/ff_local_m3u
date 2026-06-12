@@ -8,7 +8,7 @@ class ModuleMain(PluginModuleBase):
         super(ModuleMain, self).__init__(P, name="main", first_menu="setting")
         self.db_default = {
             f"{self.name}_db_version": "1",
-            "media_path": "/home/ysyou/docker/media",
+            "media_path": "",
             "extensions": ".mp4,.mkv,.avi,.ts",
         }
 
@@ -24,9 +24,7 @@ class ModuleMain(PluginModuleBase):
                 if key not in arg:
                     arg[key] = value
 
-            # logic.py의 범용 API URL 생성기를 사용하여 안전하게 주소 생성
             arg["api_m3u"] = logic.get_api_url(req, "m3u")
-            
             return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
             
         except Exception as e:
@@ -41,11 +39,10 @@ class ModuleMain(PluginModuleBase):
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
             
-            # --- 추가된 부분: 확실한 설정 저장 로직 ---
-            elif command == "save_setting":
+            # 여기서 저장을 완벽하게 처리합니다.
+            elif command == "setting_save":
                 ret = P.ModelSetting.save_from_req(req)
-                return jsonify({"ret": "success", "msg": "설정이 저장되었습니다."})
-            # -------------------------------------------
+                return jsonify({"ret": "success"})
             
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
                 
