@@ -3,7 +3,16 @@ import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from flask import Response, stream_with_context
+from framework import SystemModelSetting
 from .setup import P
+
+def get_apikey():
+    try:
+        if SystemModelSetting.get_bool("use_apikey"):
+            return str(SystemModelSetting.get("apikey") or "").strip()
+    except:
+        pass
+    return ""
 
 def _safe_b64encode(text):
     return urlsafe_b64encode(str(text).encode('utf-8')).decode('utf-8').rstrip('=')
@@ -13,39 +22,34 @@ def _safe_b64decode(text):
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
 def get_media_files():
-    raw_text = P.ModelSetting.get("custom_file_list")
-    file_list = []
+    media_path = P.ModelSetting.get("media_path")
+    ext_setting = P.ModelSetting.get("extensions")
+    valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
     
-    if not raw_text:
+    file_list = []
+    if not os.path.isdir(media_path):
         return file_list
 
-    # 줄바꿈 단위로 쪼개어 파일이 실제로 존재하는지 확인합니다.
-    for line in raw_text.splitlines():
-        path = line.strip()
-        if not path:
-            continue
-        if os.path.isfile(path):
-            file_list.append({
-                "name": os.path.basename(path),
-                "path": path
-            })
+    for file_name in os.listdir(media_path):
+        if file_name.lower().endswith(valid_exts):
+            file_list.append(file_name)
             
-    return file_list
+    return sorted(file_list)
 
 def get_media_list(req):
     files = get_media_files()
     host_url = req.host_url.rstrip('/')
+    apikey = get_apikey()
+    api_qs = f"?apikey={apikey}" if apikey else ""
     result = []
     
-    for idx, item in enumerate(files, 1):
-        # 파일 전체 경로를 base64로 묶어서 재생 라우트로 넘깁니다.
-        encoded_path = _safe_b64encode(item["path"])
-        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_path}"
+    for idx, file_name in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_name)
+        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_name}{api_qs}"
         
         result.append({
             "idx": idx,
-            "name": item["name"],
-            "path": item["path"],
+            "name": file_name,
             "url": play_url
         })
         
@@ -54,22 +58,23 @@ def get_media_list(req):
 def make_m3u(req):
     files = get_media_files()
     host_url = req.host_url.rstrip('/')
+    apikey = get_apikey()
+    api_qs = f"?apikey={apikey}" if apikey else ""
     
     lines = ["#EXTM3U\n"]
-    for index, item in enumerate(files, 1):
-        encoded_path = _safe_b64encode(item["path"])
-        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_path}"
+    for index, file_name in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_name)
+        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_name}{api_qs}"
         
-        # 작은 따옴표와 큰 따옴표 등 M3U 규격을 더 엄격하게 맞췄습니다.
-        lines.append(f'#EXTINF:-1 tvg-name="{item["name"]}" tvg-chno="{index}",{item["name"]}\n{play_url}\n')
+        lines.append(f'#EXTINF:-1 tvg-name="{file_name}" tvg-chno="{index}",{file_name}\n{play_url}\n')
         
-    # 플레이어가 완벽한 M3U 파일로 인식하도록 content_type을 애플 표준으로 변경했습니다.
-    return Response("".join(lines), content_type="application/vnd.apple.mpegurl")
+    return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
 
-def play_ffmpeg_copy(encoded_path):
+def play_ffmpeg_copy(encoded_name):
     try:
-        # 넘어온 전체 경로를 해독합니다.
-        full_path = _safe_b64decode(encoded_path)
+        file_name = _safe_b64decode(encoded_name)
+        media_path = P.ModelSetting.get("media_path")
+        full_path = os.path.join(media_path, file_name)
         
         if not os.path.isfile(full_path):
             return Response("File not found", status=404)
@@ -89,7 +94,7 @@ def play_ffmpeg_copy(encoded_path):
             "-"
         ]
         
-        P.logger.info(f"FFmpeg Play Start: {full_path}")
+        P.logger.info(f"FFmpeg Play Start: {file_name}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
@@ -103,7 +108,7 @@ def play_ffmpeg_copy(encoded_path):
             finally:
                 if proc.poll() is None:
                     proc.kill()
-                P.logger.info(f"FFmpeg Play End: {full_path}")
+                P.logger.info(f"FFmpeg Play End: {file_name}")
 
         return Response(generate(), mimetype="video/MP2T")
         
