@@ -2,9 +2,7 @@ import os
 import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
-from urllib.parse import quote
 from flask import Response, stream_with_context
-
 from .setup import P
 
 def _safe_b64encode(text):
@@ -29,17 +27,30 @@ def get_media_files():
             
     return sorted(file_list)
 
-def make_m3u(req):
-    media_path = P.ModelSetting.get("media_path")
+def get_media_list(req):
     files = get_media_files()
+    host_url = req.host_url.rstrip('/')
+    result = []
     
-    # 서버의 Base URL 추출 (포트 포함)
+    for idx, file_name in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_name)
+        play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_name}"
+        
+        result.append({
+            "idx": idx,
+            "name": file_name,
+            "url": play_url
+        })
+        
+    return result
+
+def make_m3u(req):
+    files = get_media_files()
     host_url = req.host_url.rstrip('/')
     
     lines = ["#EXTM3U\n"]
     for index, file_name in enumerate(files, 1):
         encoded_name = _safe_b64encode(file_name)
-        # FFmpeg 스트림 카피 라우트로 연결
         play_url = f"{host_url}/{P.package_name}/api/play/ffmpeg/{encoded_name}"
         
         lines.append(f'#EXTINF:-1 tvg-name="{file_name}" tvg-chno="{index}",{file_name}\n{play_url}\n')
@@ -55,7 +66,6 @@ def play_ffmpeg_copy(encoded_name):
         if not os.path.isfile(full_path):
             return Response("File not found", status=404)
 
-        # -re 옵션: 로컬 파일을 원래 재생 속도에 맞춰 읽음 (스트리밍 시 필수)
         cmd = [
             "ffmpeg", 
             "-hide_banner", 
@@ -78,7 +88,6 @@ def play_ffmpeg_copy(encoded_name):
         def generate():
             try:
                 while True:
-                    # 188바이트(MPEG-TS 패킷 크기)의 배수로 청크를 읽어 전송
                     chunk = proc.stdout.read(188 * 32)
                     if not chunk:
                         break
