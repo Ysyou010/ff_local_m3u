@@ -8,12 +8,12 @@
   {{ macros.m_tab_content_start() }}
   <div class="tab-pane active" id="normal">
     <form id="setting" name="setting">
-      {{ macros.setting_input_textarea('media_path', '미디어 경로', value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이나 폴더의 절대 경로입니다.', '여러 개일 경우 줄바꿈(엔터)으로 구분하여 입력하세요.']) }}
+      {{ macros.setting_input_text('media_path', '미디어 폴더 경로', value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다. 탐색기를 이용해 선택하세요.']) }}
       
       {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
       
       <div class="mt-3">
-        {{ macros.m_button_group([['mySaveBtn', '저장']]) }}
+        {{ macros.setting_button([['globalSettingSaveBtn', '저장']]) }}
       </div>
     </form>
     {{ macros.m_hr() }}
@@ -22,24 +22,4 @@
   </div>
   {{ macros.m_tab_content_end() }}
 </div>
-
-<script type="text/javascript">
-// 확실한 저장을 위한 수동 AJAX 스크립트 추가
-$("body").on('click', '#mySaveBtn', function(e){
-    e.preventDefault();
-    var formData = $('#setting').serialize();
-    $.ajax({
-        url: '/' + package_name + '/ajax/' + sub + '/setting_save',
-        type: "POST",
-        data: formData,
-        success: function (ret) {
-            if (ret.ret == 'success') {
-                notify('설정이 저장되었습니다.', 'success');
-            } else {
-                notify('저장 실패: ' + ret.msg, 'danger');
-            }
-        }
-    });
-});
-</script>
 {% endblock %}
