@@ -8,7 +8,7 @@
   {{ macros.m_tab_content_start() }}
   <div class="tab-pane active" id="normal">
     <form id="setting" name="setting">
-      {{ macros.setting_input_text('media_path', '미디어 폴더 경로', value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다. 탐색기를 이용해 선택하세요.']) }}
+      {{ macros.setting_input_text_and_buttons('media_path', '미디어 폴더 경로', [['select_path_btn', '탐색기 열기']], value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다.']) }}
       
       {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
       
@@ -22,4 +22,16 @@
   </div>
   {{ macros.m_tab_content_end() }}
 </div>
+
+<script type="text/javascript">
+// 탐색기 모달 팝업을 강제로 호출하는 확실한 스크립트입니다.
+$("body").on('click', '#select_path_btn', function(e){
+    e.preventDefault();
+    var current_path = $('#media_path').val() || "/";
+    // 폴더 전용 탐색기 호출 (true = 폴더만 선택 가능)
+    m_select_local_file_modal("미디어 폴더 선택", current_path, true, function(result){
+        $('#media_path').val(result);
+    });
+});
+</script>
 {% endblock %}
