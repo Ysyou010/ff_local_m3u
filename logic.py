@@ -40,6 +40,7 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
+# 하위 폴더까지 모두 스캔하도록 업그레이드된 함수
 def get_media_files():
     media_path = P.ModelSetting.get("media_path")
     ext_setting = P.ModelSetting.get("extensions")
@@ -49,24 +50,31 @@ def get_media_files():
     if not os.path.isdir(media_path):
         return file_list
 
-    for file_name in os.listdir(media_path):
-        if file_name.lower().endswith(valid_exts):
-            file_list.append(file_name)
-            
+    # os.walk를 사용하여 폴더 안의 폴더까지 전부 탐색
+    for root, dirs, files in os.walk(media_path):
+        for file_name in files:
+            if file_name.lower().endswith(valid_exts):
+                full_path = os.path.join(root, file_name)
+                # 최상위 경로를 제외한 상대 경로 생성 (예: 드라마/시즌1/1화.mp4)
+                rel_path = os.path.relpath(full_path, media_path)
+                # 윈도우 환경 대비 역슬래시를 슬래시로 변경
+                rel_path = rel_path.replace('\\', '/')
+                
+                file_list.append(rel_path)
+                
     return sorted(file_list)
 
 def get_media_list(req):
     files = get_media_files()
     result = []
     
-    for idx, file_name in enumerate(files, 1):
-        encoded_name = _safe_b64encode(file_name)
-        # 규격화된 URL 빌더 사용
+    for idx, file_path in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_path)
         play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
         
         result.append({
             "idx": idx,
-            "name": file_name,
+            "name": file_path, # 파일명 대신 폴더가 포함된 상대경로를 표시
             "url": play_url
         })
         
@@ -76,23 +84,22 @@ def make_m3u(req):
     files = get_media_files()
     lines = ["#EXTM3U\n"]
     
-    for index, file_name in enumerate(files, 1):
-        encoded_name = _safe_b64encode(file_name)
-        # 규격화된 URL 빌더 사용
+    for index, file_path in enumerate(files, 1):
+        encoded_name = _safe_b64encode(file_path)
         play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
         
-        lines.append(f'#EXTINF:-1 tvg-name="{file_name}" tvg-chno="{index}",{file_name}\n{play_url}\n')
+        lines.append(f'#EXTINF:-1 tvg-name="{file_path}" tvg-chno="{index}",{file_path}\n{play_url}\n')
         
     return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
 
 def play_ffmpeg_copy(encoded_name):
     try:
-        file_name = _safe_b64decode(encoded_name)
+        rel_path = _safe_b64decode(encoded_name)
         media_path = P.ModelSetting.get("media_path")
-        full_path = os.path.join(media_path, file_name)
+        full_path = os.path.join(media_path, rel_path)
         
         if not os.path.isfile(full_path):
-            return Response("File not found", status=404)
+            return Response(f"File not found: {rel_path}", status=404)
 
         cmd = [
             "ffmpeg", 
@@ -109,7 +116,7 @@ def play_ffmpeg_copy(encoded_name):
             "-"
         ]
         
-        P.logger.info(f"FFmpeg Play Start: {file_name}")
+        P.logger.info(f"FFmpeg Play Start: {rel_path}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
@@ -123,7 +130,7 @@ def play_ffmpeg_copy(encoded_name):
             finally:
                 if proc.poll() is None:
                     proc.kill()
-                P.logger.info(f"FFmpeg Play End: {file_name}")
+                P.logger.info(f"FFmpeg Play End: {rel_path}")
 
         return Response(generate(), mimetype="video/MP2T")
         
