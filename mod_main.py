@@ -16,15 +16,21 @@ class ModuleMain(PluginModuleBase):
         P.logger.info("Local Media M3U Plugin Loaded")
 
     def process_menu(self, sub, req):
+        # 1. DB 값을 가져옵니다.
         arg = P.ModelSetting.to_dict()
-        host_url = req.host_url.rstrip('/')
+        
+        # 2. DB 초기화 지연/누락으로 키가 없을 경우, 기본값을 안전하게 채워 넣습니다.
+        if arg is None:
+            arg = {}
+        for key, value in self.db_default.items():
+            if key not in arg:
+                arg[key] = value
+
+        # 3. M3U API 주소를 생성합니다. (명확한 request 객체 사용)
+        host_url = request.host_url.rstrip('/')
         arg["api_m3u"] = f"{host_url}/{P.package_name}/api/m3u"
         
-        if sub == "setting":
-            return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
-        elif sub == "list":
-            return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
-            
+        # 4. 화면을 렌더링합니다.
         return render_template(f"{P.package_name}_{self.name}_{sub}.html", arg=arg)
 
     def process_command(self, command, arg1, arg2, arg3, req):
