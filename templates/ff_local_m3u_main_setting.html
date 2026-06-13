@@ -2,83 +2,31 @@
 {% block content %}
 <div>
   {{ macros.m_tab_head_start() }}
-    {{ macros.m_tab_head('normal', '설정', true) }}
+    {{ macros.m_tab_head('tab_setting', '설정', true) }}
+    {{ macros.m_tab_head('tab_media', '미디어', false) }}
   {{ macros.m_tab_head_end() }}
 
+  <form id="setting" name="setting">
   {{ macros.m_tab_content_start() }}
-  <div class="tab-pane active" id="normal">
-    <form id="setting" name="setting">
-      
-      <div class="form-group row mt-3">
-        <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
-        <div class="col-sm-9">
-          <div class="input-group mb-2" style="width: 50%;">
-            <input type="text" id="manage_category_input" class="form-control" placeholder="새 카테고리명 입력">
-            <div class="input-group-append">
-              <button class="btn btn-outline-primary" type="button" id="btn_add_category"><i class="fa fa-plus"></i> 추가</button>
-            </div>
+  
+  <div class="tab-pane active" id="tab_setting">
+    
+    <div class="form-group row mt-3">
+      <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
+      <div class="col-sm-9">
+        <div class="input-group mb-2" style="width: 50%;">
+          <input type="text" id="manage_category_input" class="form-control" placeholder="새 카테고리명 입력">
+          <div class="input-group-append">
+            <button class="btn btn-outline-primary" type="button" id="btn_add_category"><i class="fa fa-plus"></i> 추가</button>
           </div>
-          <div id="category_badges_display" class="mb-2">
-            </div>
-          <small class="form-text text-muted">등록할 재생목록의 분류를 먼저 생성해 주세요. ('기본' 카테고리는 삭제할 수 없습니다)</small>
         </div>
+        <div id="category_badges_display" class="mb-2"></div>
+        <small class="form-text text-muted">등록할 재생목록의 분류를 먼저 생성해 주세요. ('기본' 카테고리는 삭제할 수 없습니다)</small>
       </div>
-      
-      <div class="form-group row mt-2">
-        <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
-        <div class="col-sm-9">
-          <div class="d-flex mb-2">
-            <select id="new_category_select" class="form-control mr-1" style="width: 18%;">
-            </select>
-            
-            <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
-            
-            <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
-              <option value="자동">자동 (최대)</option>
-              <option value="1080p">1080p</option>
-              <option value="720p">720p</option>
-              <option value="480p">480p</option>
-              <option value="360p">360p</option>
-              <option value="240p">240p</option>
-              <option value="144p">144p (최저)</option>
-            </select>
-            
-            <div class="input-group" style="width: 47%;">
-              <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
-              <div class="input-group-append">
-                <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
-                <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
-              </div>
-            </div>
-          </div>
-          <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다.</small>
-        </div>
-      </div>
-
-      <div class="form-group row">
-        <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
-        <div class="col-sm-9">
-          <div class="d-flex justify-content-between align-items-end mb-2">
-            <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
-              <option value="전체">전체 카테고리</option>
-            </select>
-            <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경 사항은 즉시 자동 저장됩니다.</b></small>
-          </div>
-          <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;"></ul>
-        </div>
-      </div>
-
-      <div style="display: none;">
-        <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
-        <input type="hidden" id="category_list" name="category_list" value="{{ arg.get('category_list', '기본,영화,유튜브,드라마') }}">
-      </div>
-      
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (수정 후 빈 공간을 클릭하면 자동 저장됩니다)']) }}
-      
-      <div class="mt-3" style="display: none;">
-        {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
-      </div>
-    </form>
+    </div>
+    
+    {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (수정 후 빈 공간을 클릭하면 자동 저장됩니다)']) }}
+    
     {{ macros.m_hr() }}
     
     <div class="form-group row">
@@ -87,7 +35,61 @@
     </div>
     
   </div>
+  
+  <div class="tab-pane" id="tab_media">
+    
+    <div class="form-group row mt-3">
+      <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
+      <div class="col-sm-9">
+        <div class="d-flex mb-2">
+          <select id="new_category_select" class="form-control mr-1" style="width: 18%;"></select>
+          <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
+          
+          <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
+            <option value="자동">자동 (최대)</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+            <option value="360p">360p</option>
+            <option value="240p">240p</option>
+            <option value="144p">144p (최저)</option>
+          </select>
+          
+          <div class="input-group" style="width: 47%;">
+            <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
+            <div class="input-group-append">
+              <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
+              <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
+            </div>
+          </div>
+        </div>
+        <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다.</small>
+      </div>
+    </div>
+
+    <div class="form-group row">
+      <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
+      <div class="col-sm-9">
+        <div class="d-flex justify-content-between align-items-end mb-2">
+          <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
+            <option value="전체">전체 카테고리</option>
+          </select>
+          <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경 사항은 조용히 자동 저장됩니다.</b></small>
+        </div>
+        <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 500px; overflow-y: auto; border-radius: 4px;"></ul>
+      </div>
+    </div>
+    
+  </div>
+  
   {{ macros.m_tab_content_end() }}
+
+  <div style="display: none;">
+    <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
+    <input type="hidden" id="category_list" name="category_list" value="{{ arg.get('category_list', '기본,영화,유튜브,드라마') }}">
+  </div>
+  
+  </form>
 </div>
 
 <script type="text/javascript">
@@ -103,12 +105,18 @@ function getFileName(path) {
 }
 
 function autoSaveList() {
-    $('#globalSettingSaveBtn').click();
+    $.ajax({
+        url: '/' + PACKAGE_NAME + '/ajax/setting_save',
+        type: "POST", 
+        cache: false,
+        data: $('#setting').serialize(),
+        dataType: "json",
+        success: function (data) { }
+    });
 }
 
 $("body").on('change', '#extensions', function() { autoSaveList(); });
 
-// 🌟 카테고리 초기화 및 화면 그리기 로직
 function initCategoryManager() {
     var raw = $('#category_list').val().trim();
     if (raw === '') {
@@ -116,7 +124,6 @@ function initCategoryManager() {
     } else {
         definedCategories = raw.split(',').map(function(item) { return item.trim(); });
     }
-    // 기본 카테고리가 없으면 무조건 강제 삽입
     if (definedCategories.indexOf('기본') === -1) {
         definedCategories.unshift('기본');
     }
@@ -124,7 +131,6 @@ function initCategoryManager() {
 }
 
 function renderCategoryManager() {
-    // 1. 관리 영역 뱃지 그리기
     var html = '';
     for (var i = 0; i < definedCategories.length; i++) {
         var cat = definedCategories[i];
@@ -136,7 +142,6 @@ function renderCategoryManager() {
     }
     $('#category_badges_display').html(html);
 
-    // 2. 미디어 추가 드롭다운 업데이트
     var selectHtml = '';
     for (var i = 0; i < definedCategories.length; i++) {
         selectHtml += '<option value="' + definedCategories[i] + '">' + definedCategories[i] + '</option>';
@@ -147,11 +152,9 @@ function renderCategoryManager() {
         $('#new_category_select').val(prevSelected);
     }
     
-    // 3. 숨겨진 input 업데이트
     $('#category_list').val(definedCategories.join(','));
 }
 
-// 🌟 새 카테고리 추가 이벤트
 $("body").on('click', '#btn_add_category', function(e) {
     e.preventDefault();
     var newCat = $('#manage_category_input').val().trim();
@@ -163,11 +166,10 @@ $("body").on('click', '#btn_add_category', function(e) {
     definedCategories.push(newCat);
     $('#manage_category_input').val('');
     renderCategoryManager();
-    renderList(); // 드롭다운 등 동기화
+    renderList(); 
     autoSaveList();
 });
 
-// 엔터키 지원
 $('#manage_category_input').keypress(function(e){
     if(e.which == 13) {
         e.preventDefault();
@@ -175,7 +177,6 @@ $('#manage_category_input').keypress(function(e){
     }
 });
 
-// 🌟 카테고리 삭제 이벤트
 $("body").on('click', '.delete_cat_icon', function(e) {
     var catToDelete = $(this).data('cat');
     var idx = definedCategories.indexOf(catToDelete);
@@ -189,10 +190,10 @@ $("body").on('click', '.delete_cat_icon', function(e) {
 
 function renderList() {
     var textLines = [];
-    var filterSet = new Set(definedCategories); // 필터 드롭다운용 Set
+    var filterSet = new Set(definedCategories); 
     
     for (var i = 0; i < pathArray.length; i++) {
-        filterSet.add(pathArray[i].category); // 삭제된 옛날 카테고리도 리스트에 있으면 필터에 표시
+        filterSet.add(pathArray[i].category); 
         textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].quality + '|' + pathArray[i].path);
     }
     
@@ -274,7 +275,7 @@ function renderM3uUrls(categories) {
 function addPath(newCategory, newTitle, newQuality, newPath) {
     newPath = newPath.trim();
     newTitle = newTitle.trim();
-    newCategory = newCategory.trim(); // 이제 select에서 값이 넘어옵니다.
+    newCategory = newCategory.trim(); 
     
     if (newPath === '') { notify('경로나 URL을 입력하세요.', 'warning'); return; }
     if (newCategory === '') { newCategory = '기본'; }
@@ -297,10 +298,8 @@ function addPath(newCategory, newTitle, newQuality, newPath) {
 }
 
 $(document).ready(function(){
-    // 1. 카테고리 매니저 초기화
     initCategoryManager();
     
-    // 2. 미디어 목록 초기화
     var initialText = $('#media_path').val().trim();
     if (initialText !== '') {
         var lines = initialText.split('\n');
@@ -327,7 +326,6 @@ $("body").on('change', '#category_filter', function() { currentFilter = $(this).
 
 $("body").on('click', '#add_path_btn', function(e){
     e.preventDefault();
-    // 🌟 변경: 텍스트 입력창 대신 카테고리 드롭다운(#new_category_select)의 값을 가져옵니다.
     addPath($('#new_category_select').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
 });
 
