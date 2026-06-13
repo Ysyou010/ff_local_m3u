@@ -10,10 +10,27 @@
     <form id="setting" name="setting">
       
       <div class="form-group row mt-3">
+        <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
+        <div class="col-sm-9">
+          <div class="input-group mb-2" style="width: 50%;">
+            <input type="text" id="manage_category_input" class="form-control" placeholder="새 카테고리명 입력">
+            <div class="input-group-append">
+              <button class="btn btn-outline-primary" type="button" id="btn_add_category"><i class="fa fa-plus"></i> 추가</button>
+            </div>
+          </div>
+          <div id="category_badges_display" class="mb-2">
+            </div>
+          <small class="form-text text-muted">등록할 재생목록의 분류를 먼저 생성해 주세요. ('기본' 카테고리는 삭제할 수 없습니다)</small>
+        </div>
+      </div>
+      
+      <div class="form-group row mt-2">
         <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
         <div class="col-sm-9">
           <div class="d-flex mb-2">
-            <input type="text" id="new_category_input" class="form-control mr-1" placeholder="목록명 (예: 영화)" style="width: 18%;">
+            <select id="new_category_select" class="form-control mr-1" style="width: 18%;">
+            </select>
+            
             <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
             
             <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
@@ -53,6 +70,7 @@
 
       <div style="display: none;">
         <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
+        <input type="hidden" id="category_list" name="category_list" value="{{ arg.get('category_list', '기본,영화,유튜브,드라마') }}">
       </div>
       
       {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (수정 후 빈 공간을 클릭하면 자동 저장됩니다)']) }}
@@ -74,6 +92,7 @@
 
 <script type="text/javascript">
 var pathArray = [];
+var definedCategories = [];
 var base_m3u_url = "{{ arg.get('api_m3u', '') }}"; 
 var currentFilter = "전체";
 
@@ -87,29 +106,106 @@ function autoSaveList() {
     $('#globalSettingSaveBtn').click();
 }
 
-$("body").on('change', '#extensions', function() {
+$("body").on('change', '#extensions', function() { autoSaveList(); });
+
+// 🌟 카테고리 초기화 및 화면 그리기 로직
+function initCategoryManager() {
+    var raw = $('#category_list').val().trim();
+    if (raw === '') {
+        definedCategories = ['기본'];
+    } else {
+        definedCategories = raw.split(',').map(function(item) { return item.trim(); });
+    }
+    // 기본 카테고리가 없으면 무조건 강제 삽입
+    if (definedCategories.indexOf('기본') === -1) {
+        definedCategories.unshift('기본');
+    }
+    renderCategoryManager();
+}
+
+function renderCategoryManager() {
+    // 1. 관리 영역 뱃지 그리기
+    var html = '';
+    for (var i = 0; i < definedCategories.length; i++) {
+        var cat = definedCategories[i];
+        html += '<span class="badge badge-primary mr-1 p-2 shadow-sm" style="font-size: 14px;">' + cat;
+        if (cat !== '기본') {
+            html += ' <i class="fa fa-times text-white ml-2 delete_cat_icon" data-cat="' + cat + '" style="cursor:pointer;" title="삭제"></i>';
+        }
+        html += '</span>';
+    }
+    $('#category_badges_display').html(html);
+
+    // 2. 미디어 추가 드롭다운 업데이트
+    var selectHtml = '';
+    for (var i = 0; i < definedCategories.length; i++) {
+        selectHtml += '<option value="' + definedCategories[i] + '">' + definedCategories[i] + '</option>';
+    }
+    var prevSelected = $('#new_category_select').val();
+    $('#new_category_select').html(selectHtml);
+    if (definedCategories.indexOf(prevSelected) !== -1) {
+        $('#new_category_select').val(prevSelected);
+    }
+    
+    // 3. 숨겨진 input 업데이트
+    $('#category_list').val(definedCategories.join(','));
+}
+
+// 🌟 새 카테고리 추가 이벤트
+$("body").on('click', '#btn_add_category', function(e) {
+    e.preventDefault();
+    var newCat = $('#manage_category_input').val().trim();
+    if (newCat === '') return;
+    if (definedCategories.indexOf(newCat) !== -1) {
+        notify('이미 존재하는 카테고리입니다.', 'warning');
+        return;
+    }
+    definedCategories.push(newCat);
+    $('#manage_category_input').val('');
+    renderCategoryManager();
+    renderList(); // 드롭다운 등 동기화
     autoSaveList();
 });
 
+// 엔터키 지원
+$('#manage_category_input').keypress(function(e){
+    if(e.which == 13) {
+        e.preventDefault();
+        $('#btn_add_category').click();
+    }
+});
+
+// 🌟 카테고리 삭제 이벤트
+$("body").on('click', '.delete_cat_icon', function(e) {
+    var catToDelete = $(this).data('cat');
+    var idx = definedCategories.indexOf(catToDelete);
+    if (idx !== -1) {
+        definedCategories.splice(idx, 1);
+        renderCategoryManager();
+        renderList();
+        autoSaveList();
+    }
+});
+
 function renderList() {
-    var categories = new Set();
     var textLines = [];
+    var filterSet = new Set(definedCategories); // 필터 드롭다운용 Set
     
     for (var i = 0; i < pathArray.length; i++) {
-        categories.add(pathArray[i].category);
+        filterSet.add(pathArray[i].category); // 삭제된 옛날 카테고리도 리스트에 있으면 필터에 표시
         textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].quality + '|' + pathArray[i].path);
     }
     
     $('#media_path').val(textLines.join('\n'));
     
     var filterHtml = '<option value="전체">전체 카테고리 (' + pathArray.length + ')</option>';
-    Array.from(categories).forEach(function(cat) {
+    Array.from(filterSet).forEach(function(cat) {
         var count = pathArray.filter(function(item) { return item.category === cat; }).length;
         var selected = (currentFilter === cat) ? ' selected' : '';
         filterHtml += '<option value="' + cat + '"' + selected + '>[' + cat + '] (' + count + ')</option>';
     });
     
-    if (currentFilter !== '전체' && !categories.has(currentFilter)) currentFilter = '전체';
+    if (currentFilter !== '전체' && !filterSet.has(currentFilter)) currentFilter = '전체';
     $('#category_filter').html(filterHtml);
     $('#category_filter').val(currentFilter);
     
@@ -149,7 +245,7 @@ function renderList() {
         }
     }
     $('#path_list_display').html(html);
-    renderM3uUrls(Array.from(categories));
+    renderM3uUrls(Array.from(filterSet));
 }
 
 function renderM3uUrls(categories) {
@@ -178,7 +274,7 @@ function renderM3uUrls(categories) {
 function addPath(newCategory, newTitle, newQuality, newPath) {
     newPath = newPath.trim();
     newTitle = newTitle.trim();
-    newCategory = newCategory.trim();
+    newCategory = newCategory.trim(); // 이제 select에서 값이 넘어옵니다.
     
     if (newPath === '') { notify('경로나 URL을 입력하세요.', 'warning'); return; }
     if (newCategory === '') { newCategory = '기본'; }
@@ -201,6 +297,10 @@ function addPath(newCategory, newTitle, newQuality, newPath) {
 }
 
 $(document).ready(function(){
+    // 1. 카테고리 매니저 초기화
+    initCategoryManager();
+    
+    // 2. 미디어 목록 초기화
     var initialText = $('#media_path').val().trim();
     if (initialText !== '') {
         var lines = initialText.split('\n');
@@ -227,13 +327,14 @@ $("body").on('change', '#category_filter', function() { currentFilter = $(this).
 
 $("body").on('click', '#add_path_btn', function(e){
     e.preventDefault();
-    addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
+    // 🌟 변경: 텍스트 입력창 대신 카테고리 드롭다운(#new_category_select)의 값을 가져옵니다.
+    addPath($('#new_category_select').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
 });
 
 $('#new_path_input').keypress(function(e){
     if(e.which == 13) {
         e.preventDefault();
-        addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
+        addPath($('#new_category_select').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
     }
 });
 
@@ -255,7 +356,6 @@ $("body").on('click', '.delete_path_btn', function(e){
     autoSaveList();
 });
 
-// ★ 탐색기 동작 방식 변경
 $("body").on('click', '#open_explorer_btn', function(e){
     e.preventDefault();
     var start_path = '/';
@@ -271,10 +371,8 @@ $("body").on('click', '#open_explorer_btn', function(e){
     }
     
     globalSelectLocalFile("미디어 파일 선택", start_path, function(result){
-        // ★ 바로 리스트에 넣지 않고 경로 입력창에 값을 채워넣습니다.
         if (result) {
             $('#new_path_input').val(result);
-            // 입력칸으로 포커스를 옮겨서 사용자가 확인하기 편하게 합니다.
             $('#new_path_input').focus();
         }
     });
