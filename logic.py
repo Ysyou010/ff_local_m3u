@@ -3,7 +3,7 @@ import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
-from flask import Response, stream_with_context, redirect, send_file
+from flask import Response, stream_with_context, redirect, send_file, request
 from framework import SystemModelSetting
 from .setup import P
 
@@ -99,12 +99,7 @@ def get_media_list(req):
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            
-            # 안드로이드 인식용 가짜 확장자
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
-            if not ext: ext = '.mp4'
-            
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = f"[{item['category']}] {item['title']}"
             result.append({
@@ -126,11 +121,7 @@ def make_m3u(req):
         for index, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
-            if not ext: ext = '.mp4'
-            
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = item['title']
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
@@ -150,52 +141,77 @@ def play_ffmpeg_copy(encoded_name):
             full_path = full_str
             
         # ==========================================
-        # 1. 로컬 파일: 에러 요소를 완전히 제거한 100% 순정 코드
+        # 1. 로컬 파일: 100% 순정 코드 (건드리지 않음)
         # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
                 
-            P.logger.info(f"[재생 시작] 로컬 파일 순정 다이렉트 전송: {full_path}")
-            # 이 단 한 줄이 안드로이드 탐색(Range)과 버퍼링을 가장 완벽하게 처리합니다.
+            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트: {full_path}")
             return send_file(full_path, conditional=True)
             
         # ==========================================
-        # 2. 유튜브 처리: 크래시 유발 1080p 합성 폐기, 720p 다이렉트 고정
+        # 2. 유튜브 처리
         # ==========================================
-        P.logger.info(f"[재생 요청] YouTube: {full_path}")
+        P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
         
         try:
             import yt_dlp
+            import requests
             
-            # 안드로이드가 절대 에러를 뿜지 않는 '화면+소리 합본' 최대 화질(720p) MP4만 강제로 뽑아옵니다.
-            format_str = 'best[height<=720][ext=mp4]/best[ext=mp4]/best'
+            # 합본 파일 중 최고 화질(최대 720p) 추출
+            if quality == "자동":
+                format_str = 'best[ext=mp4]/best'
+            elif quality.endswith('p') and quality[:-1].isdigit():
+                max_height = quality[:-1]
+                format_str = f'best[height<={max_height}][ext=mp4]/best[ext=mp4]/best'
+            else:
+                format_str = 'best'
+                
             ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(full_path, download=False)
                 is_live = info.get('is_live', False)
                 stream_url = info.get('url') or info.get('manifest_url')
+                user_agent = info.get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
                 
                 if not stream_url:
                     return Response("스트림 주소 추출 실패", status=500)
                 
-                # 🌟 일반 영상(VOD): 플레이어에게 유튜브 원본 주소를 바로 넘김 (속도 1위, 탐색 완벽)
+                # 🌟 [VOD] 유튜브 원본 파이썬 중계 (구글 차단 회피 + 앞뒤 구간 탐색 지원)
                 if not is_live:
-                    P.logger.info(f"[재생 시작] YouTube VOD 302 다이렉트 리다이렉트")
-                    return redirect(stream_url, code=302)
+                    P.logger.info(f"[재생 시작] YouTube VOD 서버 자체 중계 (탐색 지원)")
+                    
+                    req_headers = {"User-Agent": user_agent}
+                    # 플레이어가 구간 이동(넘기기)을 요청하면, 그 요청을 구글에 그대로 전달
+                    if request.headers.get('Range'):
+                        req_headers['Range'] = request.headers.get('Range')
+                        
+                    r = requests.get(stream_url, headers=req_headers, stream=True)
+                    
+                    def generate():
+                        for chunk in r.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                yield chunk
+                                
+                    # 구글의 응답(정상 전송 또는 구간 전송 206)을 플레이어에게 그대로 패스
+                    resp = Response(stream_with_context(generate()), status=r.status_code)
+                    for k in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
+                        if k in r.headers:
+                            resp.headers[k] = r.headers[k]
+                    return resp
                 
-                # 🌟 라이브 방송(Live): 이것만 서버가 중계합니다.
-                P.logger.info(f"[재생 시작] YouTube 라이브 중계 가동")
-                user_agent = info.get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
+                # 🌟 [LIVE] 라이브 방송은 FFmpeg로 파이프 전송
+                P.logger.info(f"[재생 시작] YouTube 라이브 방송 FFmpeg 중계 가동")
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                 cmd.extend(["-user_agent", user_agent, "-i", stream_url])
-                cmd.extend(["-map", "0:v:0?", "-map", "0:a:0?"])
                 cmd.extend(["-c:v", "copy", "-c:a", "copy", "-muxdelay", "0", "-f", "mpegts", "-"])
                 
         except Exception as e:
             P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
+            P.logger.error(traceback.format_exc())
             return Response(f"유튜브 에러: {e}", status=500)
         
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
@@ -216,4 +232,5 @@ def play_ffmpeg_copy(encoded_name):
 
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
+        P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
