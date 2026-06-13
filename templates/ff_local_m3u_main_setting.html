@@ -8,9 +8,9 @@
   {{ macros.m_tab_content_start() }}
   <div class="tab-pane active" id="normal">
     <form id="setting" name="setting">
-      {{ macros.setting_input_text('media_path', '미디어 폴더 경로', value=arg.get('media_path', ''), desc=['M3U로 생성할 영상 파일이 있는 절대 경로입니다.']) }}
+      {{ macros.setting_input_textarea('media_path', '개별 미디어 파일 경로', value=arg.get('media_path', ''), desc=['M3U에 등록할 영상 파일의 절대 경로를 한 줄에 하나씩 입력하세요.', '※ 폴더 경로는 더 이상 스캔하지 않습니다. 반드시 파일명 끝(.mp4 등)까지 입력해야 합니다.']) }}
       
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '예: .mp4,.mkv,.avi,.ts']) }}
+      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '입력한 경로 중 이 확장자를 가진 파일만 등록됩니다.']) }}
       
       <div class="mt-3">
         {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
