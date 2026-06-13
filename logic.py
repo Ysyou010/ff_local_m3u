@@ -147,11 +147,11 @@ def play_ffmpeg_copy(encoded_name):
             try:
                 import yt_dlp
                 
-                # 🌟 고화질 실시간 합성 처리를 위해 비디오와 오디오 분리형 포맷 스트링 조립
-                format_str = 'bestvideo+bestaudio/best'
+                # 🌟 [안드로이드 호환 규격 필터링링] 비디오는 mp4(h264), 오디오는 m4a(aac) 포맷만 타겟팅팅합니다.
+                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
                 if quality.endswith('p') and quality[:-1].isdigit():
                     max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]'
+                    format_str = f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best[height<={max_height}]'
                     
                 ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
                 
@@ -160,9 +160,9 @@ def play_ffmpeg_copy(encoded_name):
                     is_live = info.get('is_live', False)
                     req_formats = info.get('requested_formats')
                     
-                    # 🌟 Case 1: 비디오와 오디오 주소가 완전히 분리된 진짜 고화질 VOD일 때 (FFmpeg 복합 프록시 가동)
+                    # Case 1: 고화질 분리형 파일 포맷 스트림 재생 단계
                     if req_formats and len(req_formats) == 2 and not is_live:
-                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD 복합 스트림 프록시 중계 ({quality})")
+                        P.logger.info(f"[재생 시작] 안드로이드용 고화질 VOD 복합 스트림 프록시 전송 ({quality})")
                         video_url = req_formats[0].get('url')
                         audio_url = req_formats[1].get('url')
                         
@@ -177,10 +177,12 @@ def play_ffmpeg_copy(encoded_name):
                             "-i", audio_url,
                             "-map", "0:v:0", "-map", "1:a:0",
                             "-c:v", "copy", "-c:a", "copy",
+                            "-fflags", "+genpts",              # 🌟 ExoPlayer 싱크용 타임스탬프 재작성 옵션
+                            "-max_interleave_delta", "0",      # 🌟 스트리밍 버퍼 끊김 방지 최적화 옵션
                             "-muxdelay", "0", "-f", "mpegts", "-"
                         ])
                     
-                    # 🌟 Case 2: 라이브 방송이거나 분리가 안 된 단일 스트림 저화질일 때
+                    # Case 2: 라이브 방송이거나 단일 저화질 스트림일 때
                     else:
                         stream_url = info.get('url') or info.get('manifest_url')
                         if not stream_url:
@@ -191,27 +193,25 @@ def play_ffmpeg_copy(encoded_name):
                             user_agent = headers['User-Agent']
                             
                         if not is_live:
-                            # 360p 이하의 단일 스트림은 부드러운 구간 탐색을 위해 302 리다이렉트 처리
-                            P.logger.info(f"[재생 시작] YouTube 저화질 단일 스트림 VOD 리다이렉트")
+                            P.logger.info(f"[재생 시작] 저화질 VOD 리다이렉트")
                             return redirect(stream_url, code=302)
                         
-                        # 라이브 방송은 단일 HLS 스트림을 실시간 TS 규격 중계
-                        P.logger.info(f"[재생 시작] YouTube 라이브 스트림 프록시 중계")
+                        P.logger.info(f"[재생 시작] YouTube 라이브 안드로이드 규격 중계 가동")
                         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                         cmd.extend(["-user_agent", user_agent])
                         cmd.extend([
                             "-i", stream_url,
                             "-map", "0:v:0?", "-map", "0:a:0?",
                             "-c:v", "copy", "-c:a", "copy",
+                            "-fflags", "+genpts",
+                            "-max_interleave_delta", "0",
                             "-muxdelay", "0", "-f", "mpegts", "-"
                         ])
                         
             except Exception as e:
                 P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-                P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
             
-            # 실시간 FFmpeg 덤프 데이터 인코딩 스트리밍 출력
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
             
             @stream_with_context
@@ -239,5 +239,4 @@ def play_ffmpeg_copy(encoded_name):
             
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
-        P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
