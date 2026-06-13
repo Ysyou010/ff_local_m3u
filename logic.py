@@ -3,7 +3,7 @@ import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
-from flask import Response, stream_with_context
+from flask import Response, stream_with_context, redirect
 from framework import SystemModelSetting
 from .setup import P
 
@@ -49,12 +49,13 @@ def get_media_files():
     valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
     
     file_list = []
-    # 입력된 텍스트를 줄바꿈(엔터) 단위로 분리합니다.
     paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
     
     for path in paths:
-        # 폴더 스캔 삭제: 오직 지정된 파일만 검사합니다.
-        if os.path.isfile(path):
+        # 🌟 업그레이드: http 로 시작하는 유튜브/외부 주소는 무조건 통과!
+        if path.startswith("http://") or path.startswith("https://"):
+            file_list.append(path)
+        elif os.path.isfile(path):
             if path.lower().endswith(valid_exts):
                 file_list.append(path.replace('\\', '/'))
         else:
@@ -67,12 +68,14 @@ def get_media_list(req):
     result = []
     
     for idx, full_path in enumerate(files, 1):
-        # 이제 기준 폴더가 없으므로 절대 경로 전체를 인코딩합니다.
         encoded_name = _safe_b64encode(full_path)
         play_url = get_api_url(req, "play", {"file": encoded_name})
         
-        # 목록 화면에는 전체 경로가 아닌 파일 이름만 깔끔하게 출력
-        display_name = os.path.basename(full_path)
+        # 주소 형태인 경우 파일명이 없으므로 보기 좋게 라벨링 처리
+        if full_path.startswith("http"):
+            display_name = f"YouTube Stream [{idx}]"
+        else:
+            display_name = os.path.basename(full_path)
         
         result.append({
             "idx": idx,
@@ -90,7 +93,11 @@ def make_m3u(req):
         for index, full_path in enumerate(files, 1):
             encoded_name = _safe_b64encode(full_path)
             play_url = get_api_url(req, "play", {"file": encoded_name})
-            display_name = os.path.basename(full_path)
+            
+            if full_path.startswith("http"):
+                display_name = f"YouTube Stream [{index}]"
+            else:
+                display_name = os.path.basename(full_path)
             
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
             
@@ -101,11 +108,42 @@ def make_m3u(req):
 
 def play_ffmpeg_copy(encoded_name):
     try:
-        P.logger.info("========== [FFmpeg 재생 준비 단계] ==========")
-        # 인코딩된 문자열 자체가 완벽한 절대 경로입니다.
+        P.logger.info("========== [재생 준비 단계] ==========")
         full_path = _safe_b64decode(encoded_name)
         P.logger.info(f"-> 암호 해독된 최종 재생 시도 경로: {full_path}")
         
+        # 🌟 업그레이드: 유튜브/외부 주소 처리 로직 (yt-dlp 활용)
+        if full_path.startswith("http://") or full_path.startswith("https://"):
+            P.logger.info("-> 외부 스트리밍 주소가 감지되었습니다. yt-dlp로 원본 추출을 시도합니다.")
+            try:
+                import yt_dlp
+                # 라이브 스트림과 VOD 모두 안정적으로 가져오는 포맷 설정
+                ydl_opts = {
+                    'format': 'best/best[ext=mp4]', 
+                    'quiet': True, 
+                    'noplaylist': True
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(full_path, download=False)
+                    stream_url = info.get('url', None)
+                    
+                    if stream_url:
+                        P.logger.info("-> [성공] 스트림 주소 추출 완료! 플레이어를 리다이렉트합니다.")
+                        # 앱이나 플레이어에게 진짜 스트림 주소로 가라고 302 신호를 보냅니다.
+                        return redirect(stream_url, code=302)
+                    else:
+                        P.logger.error("-> [실패] 스트림 주소를 추출하지 못했습니다.")
+                        return Response("유튜브 스트림 추출 실패", status=500)
+                        
+            except ImportError:
+                P.logger.error("-> [실패] yt-dlp 모듈이 설치되어 있지 않습니다.")
+                return Response("yt-dlp 모듈이 설치되어 있지 않습니다. 도커 컨테이너에 pip install yt-dlp를 실행하세요.", status=500)
+            except Exception as e:
+                P.logger.error(f"-> [실패] 유튜브 추출 중 에러: {e}")
+                P.logger.error(traceback.format_exc())
+                return Response(f"유튜브 추출 중 에러: {e}", status=500)
+
+        # 이하 기존 로컬 파일 FFmpeg 처리 로직 동일
         if not os.path.isfile(full_path):
             P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
             return Response(f"File not found: {full_path}", status=404)
