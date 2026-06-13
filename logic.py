@@ -143,7 +143,7 @@ def play_ffmpeg_copy(encoded_name):
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
         if full_path.startswith("http://") or full_path.startswith("https://"):
-            P.logger.info(f"[재생 시작] YouTube: {full_path} (화질: {quality})")
+            P.logger.info(f"[재생 요청] YouTube: {full_path} (화질: {quality})")
             try:
                 import yt_dlp
                 format_str = 'best'
@@ -156,8 +156,17 @@ def play_ffmpeg_copy(encoded_name):
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(full_path, download=False)
                     stream_url = info.get('url') or info.get('manifest_url')
+                    # 🌟 유튜브의 라이브 여부를 확인합니다.
+                    is_live = info.get('is_live', False)
                     
                     if stream_url:
+                        # 🌟 1. 일반 영상(VOD)인 경우: 플레이어 다이렉트 토스 (앞뒤 이동 완벽 지원)
+                        if not is_live:
+                            P.logger.info(f"[재생 시작] YouTube VOD 리다이렉트 (탐색 활성화): {full_path}")
+                            return redirect(stream_url, code=302)
+                        
+                        # 🌟 2. 라이브 방송인 경우: 기존 방식대로 안전하게 FFmpeg 프록시 중계
+                        P.logger.info(f"[재생 시작] YouTube 라이브 프록시 중계 가동: {full_path}")
                         full_path = stream_url
                         headers = info.get('http_headers', {})
                         if headers and 'User-Agent' in headers:
@@ -169,6 +178,7 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
                 return Response(f"유튜브 에러: {e}", status=500)
             
+            # 라이브 방송 전용 중계 인코더 명령조립
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
             cmd.extend(["-user_agent", user_agent])
             cmd.extend([
@@ -191,7 +201,7 @@ def play_ffmpeg_copy(encoded_name):
                 finally:
                     if proc.poll() is None:
                         proc.kill()
-                    P.logger.info("[재생 종료] YouTube 스트림 연결 해제")
+                    P.logger.info("[재생 종료] YouTube 라이브 스트림 연결 해제")
 
             return Response(generate(), mimetype="video/MP2T")
 
