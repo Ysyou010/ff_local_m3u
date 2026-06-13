@@ -41,47 +41,42 @@ def _safe_b64decode(text):
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
 def get_media_files():
-    media_path = P.ModelSetting.get("media_path")
-    if not media_path:
+    media_path_raw = P.ModelSetting.get("media_path")
+    if not media_path_raw:
         return []
         
-    media_path = media_path.strip()
     ext_setting = P.ModelSetting.get("extensions")
     valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
     
     file_list = []
+    # 입력된 텍스트를 줄바꿈(엔터) 단위로 분리합니다.
+    paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
     
-    if os.path.isfile(media_path):
-        if media_path.lower().endswith(valid_exts):
-            file_list.append(os.path.basename(media_path))
-        return file_list
-
-    if not os.path.isdir(media_path):
-        P.logger.error(f"[로컬 M3U] 올바르지 않은 경로입니다: {media_path}")
-        return file_list
-
-    for root, dirs, files in os.walk(media_path, followlinks=True):
-        for file_name in files:
-            if file_name.lower().endswith(valid_exts):
-                full_path = os.path.join(root, file_name)
-                rel_path = os.path.relpath(full_path, media_path)
-                rel_path = rel_path.replace('\\', '/')
-                file_list.append(rel_path)
-                
-    return sorted(file_list)
+    for path in paths:
+        # 폴더 스캔 삭제: 오직 지정된 파일만 검사합니다.
+        if os.path.isfile(path):
+            if path.lower().endswith(valid_exts):
+                file_list.append(path.replace('\\', '/'))
+        else:
+            P.logger.error(f"[로컬 M3U] 파일이 존재하지 않거나 폴더 경로입니다 (무시됨): {path}")
+            
+    return file_list
 
 def get_media_list(req):
     files = get_media_files()
     result = []
     
-    for idx, file_path in enumerate(files, 1):
-        encoded_name = _safe_b64encode(file_path)
-        # 슬래시 에러를 피하기 위해 ?file= 파라미터 방식으로 주소 생성
+    for idx, full_path in enumerate(files, 1):
+        # 이제 기준 폴더가 없으므로 절대 경로 전체를 인코딩합니다.
+        encoded_name = _safe_b64encode(full_path)
         play_url = get_api_url(req, "play", {"file": encoded_name})
+        
+        # 목록 화면에는 전체 경로가 아닌 파일 이름만 깔끔하게 출력
+        display_name = os.path.basename(full_path)
         
         result.append({
             "idx": idx,
-            "name": file_path,
+            "name": display_name,
             "url": play_url
         })
         
@@ -92,12 +87,12 @@ def make_m3u(req):
         files = get_media_files()
         lines = ["#EXTM3U\n"]
         
-        for index, file_path in enumerate(files, 1):
-            encoded_name = _safe_b64encode(file_path)
-            # 슬래시 에러를 피하기 위해 ?file= 파라미터 방식으로 주소 생성
+        for index, full_path in enumerate(files, 1):
+            encoded_name = _safe_b64encode(full_path)
             play_url = get_api_url(req, "play", {"file": encoded_name})
+            display_name = os.path.basename(full_path)
             
-            lines.append(f'#EXTINF:-1 tvg-name="{file_path}" tvg-chno="{index}",{file_path}\n{play_url}\n')
+            lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
             
         return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
     except Exception as e:
@@ -107,22 +102,9 @@ def make_m3u(req):
 def play_ffmpeg_copy(encoded_name):
     try:
         P.logger.info("========== [FFmpeg 재생 준비 단계] ==========")
-        rel_path = _safe_b64decode(encoded_name)
-        P.logger.info(f"-> 암호 해독된 파일명(또는 경로): {rel_path}")
-        
-        media_path = P.ModelSetting.get("media_path")
-        if not media_path:
-            P.logger.error("-> [실패] 미디어 경로가 설정되어 있지 않습니다.")
-            return Response("Media path is not configured.", status=400)
-            
-        media_path = media_path.strip()
-            
-        if os.path.isfile(media_path):
-            full_path = media_path
-        else:
-            full_path = os.path.join(media_path, rel_path)
-            
-        P.logger.info(f"-> 최종 재생 시도 경로: {full_path}")
+        # 인코딩된 문자열 자체가 완벽한 절대 경로입니다.
+        full_path = _safe_b64decode(encoded_name)
+        P.logger.info(f"-> 암호 해독된 최종 재생 시도 경로: {full_path}")
         
         if not os.path.isfile(full_path):
             P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
