@@ -54,7 +54,6 @@ def get_media_files(target_category=None):
     for line in paths:
         parts = line.split('|')
         
-        # 저장 포맷 100% 하위 호환 처리
         if len(parts) >= 4:
             category = parts[0].strip()
             title = parts[1].strip()
@@ -96,7 +95,6 @@ def get_media_list(req):
     files = get_media_files('all')
     result = []
     for idx, item in enumerate(files, 1):
-        # 🌟 화질 파라미터를 재생 주소에 함께 암호화해서 전송합니다
         encoded_payload = f"{item['quality']}||{item['path']}"
         encoded_name = _safe_b64encode(encoded_payload)
         play_url = get_api_url(req, "play", {"file": encoded_name})
@@ -116,7 +114,6 @@ def make_m3u(req):
         lines = ["#EXTM3U\n"]
         
         for index, item in enumerate(files, 1):
-            # 🌟 화질 파라미터를 함께 넘깁니다
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
             play_url = get_api_url(req, "play", {"file": encoded_name})
@@ -134,7 +131,6 @@ def play_ffmpeg_copy(encoded_name):
         P.logger.info("========== [재생 준비 단계] ==========")
         full_str = _safe_b64decode(encoded_name)
         
-        # 🌟 기존에 암호화된 주소와 완벽하게 호환되도록 처리
         if "||" in full_str:
             quality, full_path = full_str.split("||", 1)
         else:
@@ -150,14 +146,11 @@ def play_ffmpeg_copy(encoded_name):
             try:
                 import yt_dlp
                 
-                # 🌟 선택한 화질에 맞춰 포맷 옵션(ydl_opts)을 동적으로 생성
+                # 🌟 숫자로 끝나는 화질 (1080p, 720p, 360p, 144p 등)을 동적으로 처리합니다.
                 format_str = 'best'
-                if quality == '1080p':
-                    format_str = 'best[height<=1080]/best'
-                elif quality == '720p':
-                    format_str = 'best[height<=720]/best'
-                elif quality == '480p':
-                    format_str = 'best[height<=480]/best'
+                if quality.endswith('p') and quality[:-1].isdigit():
+                    max_height = quality[:-1]
+                    format_str = f'best[height<={max_height}]/best'
                     
                 ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
                 
