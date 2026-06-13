@@ -51,21 +51,23 @@ class ModuleMain(PluginModuleBase):
         try:
             P.logger.info(f"========== [API 요청 수신] sub: {sub} ==========")
             
-            # 주소 끝에 슬래시나 파라미터가 붙어 있어도 m3u로 정확히 인식하도록 강화
             if sub == "m3u" or sub.startswith("m3u"):
                 ret = logic.make_m3u(req)
                 if ret is None:
-                    return Response("make_m3u 함수가 아무것도 반환하지 않았습니다.", status=500)
+                    return Response("make_m3u 함수가 반환값이 없습니다.", status=500)
                 return ret
             
-            if sub.startswith("play/ffmpeg/"):
-                encoded_name = sub.split("play/ffmpeg/")[1]
+            # 슬래시 대신 파라미터 방식으로 안전하게 수신하도록 변경!
+            if sub == "play":
+                encoded_name = req.args.get("file")
+                if not encoded_name:
+                    return Response("파일 파라미터(?file=)가 없습니다.", status=400)
+                    
                 ret = logic.play_ffmpeg_copy(encoded_name)
                 if ret is None:
-                    return Response("play_ffmpeg_copy 함수가 아무것도 반환하지 않았습니다.", status=500)
+                    return Response("play_ffmpeg_copy 함수가 반환값이 없습니다.", status=500)
                 return ret
                 
-            # 조건에 안 맞더라도 None으로 죽지 않고 화면에 이유를 출력하도록 방어 로직 추가
             return Response(f"알 수 없는 API 요청입니다. (입력된 sub 값: {sub})", status=400)
             
         except Exception as e:
