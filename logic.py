@@ -99,11 +99,7 @@ def get_media_list(req):
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            
-            # 안드로이드 플레이어 인식을 위한 가짜 확장자 추가
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
-            if not ext: ext = '.mp4'
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = f"[{item['category']}] {item['title']}"
             result.append({
@@ -125,11 +121,7 @@ def make_m3u(req):
         for index, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            
-            # 안드로이드 플레이어 인식을 위한 가짜 확장자 추가
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
-            if not ext: ext = '.mp4'
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = item['title']
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
@@ -149,19 +141,17 @@ def play_ffmpeg_copy(encoded_name):
             full_path = full_str
             
         # ==========================================
-        # 1. 로컬 파일: 에러 유발 코드 전면 삭제 (순정 복구)
+        # 1. 로컬 파일 처리
         # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
-            
             P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송: {full_path}")
-            # ★ 가장 처음 앞뒤 넘김이 완벽하게 작동했던 플라스크 순정 기능으로 되돌렸습니다.
             return send_file(full_path, conditional=True)
             
         # ==========================================
-        # 2. 유튜브 처리: 1:1 투명 프록시 (IP 우회 + 탐색 지원)
+        # 2. 유튜브 처리
         # ==========================================
         P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
         
@@ -169,38 +159,45 @@ def play_ffmpeg_copy(encoded_name):
             import yt_dlp
             import requests
             
-            format_str = 'best[ext=mp4]/best'
-            if quality != "자동" and quality.endswith('p') and quality[:-1].isdigit():
+            needs_ffmpeg = False
+            
+            # 🌟 [고화질 분기] 1080p 이상은 무조건 분리된 파일을 강제 합성해야 하므로 FFmpeg 가동
+            if quality in ["1080p", "1440p", "2160p"]:
+                needs_ffmpeg = True
                 max_height = quality[:-1]
-                format_str = f'best[height<={max_height}][ext=mp4]/best[ext=mp4]/best'
-                
+                # 안드로이드 충돌을 막기 위해 철저하게 H.264(avc1) 코덱만 뽑아옵니다.
+                format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]'
+            else:
+                # 720p 이하는 합본 파일이 존재하므로 구간 탐색(앞뒤 넘김)을 위해 파이썬 프록시 준비
+                if quality == "자동":
+                    format_str = 'best[ext=mp4]/best'
+                else:
+                    max_height = quality[:-1]
+                    format_str = f'best[height<={max_height}][ext=mp4]/best[ext=mp4]/best'
+                    
             ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(full_path, download=False)
                 is_live = info.get('is_live', False)
+                req_formats = info.get('requested_formats')
                 stream_url = info.get('url') or info.get('manifest_url')
                 
-                if not stream_url:
-                    return Response("스트림 주소 추출 실패", status=500)
-                
-                # 🌟 [VOD] 1:1 투명 프록시 (유튜브의 응답을 가공 없이 플레이어로 그대로 전달)
-                if not is_live:
-                    P.logger.info(f"[재생 시작] YouTube VOD 투명 프록시 전송")
+                # 라이브 방송은 탐색이 안 되므로 무조건 FFmpeg 중계 모드로 전환
+                if is_live:
+                    needs_ffmpeg = True
                     
+                if not needs_ffmpeg:
+                    # ==========================================
+                    # [모드 A] 파이썬 투명 프록시 (VOD 720p 이하: 탐색 완벽 지원)
+                    # ==========================================
+                    P.logger.info(f"[재생 시작] YouTube VOD 투명 프록시 가동 (탐색 완벽 지원)")
                     req_headers = {}
                     if 'Range' in request.headers:
                         req_headers['Range'] = request.headers['Range']
                     
-                    yt_resp = requests.request(
-                        method=request.method,
-                        url=stream_url,
-                        headers=req_headers,
-                        stream=True,
-                        allow_redirects=True
-                    )
+                    yt_resp = requests.request(method=request.method, url=stream_url, headers=req_headers, stream=True, allow_redirects=True)
                     
-                    # 유튜브가 내려준 필수 헤더(구간 이동 정보 등)만 복사
                     resp_headers = {}
                     for k in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
                         if k in yt_resp.headers:
@@ -209,52 +206,61 @@ def play_ffmpeg_copy(encoded_name):
                     if request.method == 'HEAD':
                         return Response(status=yt_resp.status_code, headers=resp_headers)
                         
-                    def generate():
+                    def generate_vod():
                         for chunk in yt_resp.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
+                            if chunk: 
                                 yield chunk
                                 
-                    # direct_passthrough=True 로 플라스크의 간섭을 완전히 차단합니다.
-                    return Response(
-                        stream_with_context(generate()), 
-                        status=yt_resp.status_code, 
-                        headers=resp_headers, 
-                        direct_passthrough=True
-                    )
-                
-                # 🌟 [LIVE] 라이브 방송 전용 FFmpeg 프록시
-                P.logger.info(f"[재생 시작] YouTube 라이브 방송 중계 가동")
-                user_agent = info.get('http_headers', {}).get('User-Agent', 'Mozilla/5.0')
+                    return Response(stream_with_context(generate_vod()), status=yt_resp.status_code, headers=resp_headers, direct_passthrough=True)
+
+                else:
+                    # ==========================================
+                    # [모드 B] FFmpeg 실시간 합성 중계 (VOD 1080p 이상 또는 라이브)
+                    # ==========================================
+                    P.logger.info(f"[재생 시작] YouTube 1080p 고화질/라이브 FFmpeg 병합 가동")
+                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                     
-                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                cmd.extend(["-user_agent", user_agent])
-                cmd.extend([
-                    "-i", stream_url,
-                    "-map", "0:v:0?", "-map", "0:a:0?",
-                    "-c:v", "copy", "-c:a", "copy",
-                    "-muxdelay", "0", "-f", "mpegts", "-"
-                ])
-                
+                    # 1080p 분리 파일인 경우
+                    if req_formats and len(req_formats) == 2 and not is_live:
+                        v_url = req_formats[0].get('url')
+                        a_url = req_formats[1].get('url')
+                        ua = req_formats[0].get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
+                        
+                        cmd.extend(["-user_agent", ua, "-i", v_url, "-i", a_url])
+                        cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
+                    else:
+                        ua = info.get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
+                        cmd.extend(["-user_agent", ua, "-i", stream_url])
+                        cmd.extend(["-map", "0:v:0?", "-map", "0:a:0?"])
+                        
+                    cmd.extend([
+                        "-c:v", "copy", "-c:a", "copy",
+                        "-bsf:v", "h264_mp4toannexb", # avc1 코덱을 강제했으므로 이제 에러 없이 작동합니다.
+                        "-fflags", "+genpts",
+                        "-muxdelay", "0", "-f", "mpegts", "-"
+                    ])
+                    
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+                    
+                    @stream_with_context
+                    def generate_live():
+                        try:
+                            while True:
+                                chunk = proc.stdout.read(188 * 32)
+                                if not chunk: 
+                                    break
+                                yield chunk
+                        finally:
+                            if proc.poll() is None: 
+                                proc.kill()
+                            P.logger.info("[재생 종료] FFmpeg 프로세스 해제")
+
+                    return Response(generate_live(), mimetype="video/MP2T")
+                    
         except Exception as e:
             P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
+            P.logger.error(traceback.format_exc())
             return Response(f"유튜브 에러: {e}", status=500)
-        
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-        
-        @stream_with_context
-        def generate_live():
-            try:
-                while True:
-                    chunk = proc.stdout.read(188 * 32)
-                    if not chunk:
-                        break
-                    yield chunk
-            finally:
-                if proc.poll() is None:
-                    proc.kill()
-                P.logger.info("[재생 종료] YouTube 실시간 중계 종료")
-
-        return Response(generate_live(), mimetype="video/MP2T")
 
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
