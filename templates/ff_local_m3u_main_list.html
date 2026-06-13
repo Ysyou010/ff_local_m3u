@@ -73,11 +73,12 @@ $("body").on('click', '#play_btn', function(e){
     var popupWidth = 980;
     var leftPos = screen.width - popupWidth;
     
-    window.open('', url, "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
+    // url을 창 이름으로 쓰면 특수문자 때문에 브라우저 에러가 나므로 'play_popup'으로 고정합니다.
+    window.open('', 'play_popup', "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
     
     form.action = "/videojs";
     form.method = "post";
-    form.target = url;
+    form.target = 'play_popup'; // 폼 타겟도 똑같이 맞춰줍니다.
     
     $('#play_title').val(name);
     $('#play_source_src').val(url);
