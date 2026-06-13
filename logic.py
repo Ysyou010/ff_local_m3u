@@ -40,6 +40,7 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
+# 🌟 업데이트: 딕셔너리 형태로 제목과 경로를 분리해서 반환
 def get_media_files():
     media_path_raw = P.ModelSetting.get("media_path")
     if not media_path_raw:
@@ -51,15 +52,31 @@ def get_media_files():
     file_list = []
     paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
     
-    for path in paths:
-        # 🌟 업그레이드: http 로 시작하는 유튜브/외부 주소는 무조건 통과!
+    for line in paths:
+        # 제목|경로 형태인지 검사
+        if '|' in line:
+            parts = line.split('|', 1)
+            title = parts[0].strip()
+            path = parts[1].strip()
+        else:
+            path = line.strip()
+            title = ""
+        
+        # 제목이 없으면 자동 부여
+        if not title:
+            if path.startswith("http"):
+                title = "YouTube Stream"
+            else:
+                title = os.path.basename(path)
+                
+        # 경로 검증 후 리스트 추가
         if path.startswith("http://") or path.startswith("https://"):
-            file_list.append(path)
+            file_list.append({"title": title, "path": path})
         elif os.path.isfile(path):
             if path.lower().endswith(valid_exts):
-                file_list.append(path.replace('\\', '/'))
+                file_list.append({"title": title, "path": path.replace('\\', '/')})
         else:
-            P.logger.error(f"[로컬 M3U] 파일이 존재하지 않거나 폴더 경로입니다 (무시됨): {path}")
+            P.logger.error(f"[로컬 M3U] 파일이 없거나 폴더입니다: {path}")
             
     return file_list
 
@@ -67,15 +84,13 @@ def get_media_list(req):
     files = get_media_files()
     result = []
     
-    for idx, full_path in enumerate(files, 1):
-        encoded_name = _safe_b64encode(full_path)
+    for idx, item in enumerate(files, 1):
+        encoded_name = _safe_b64encode(item['path']) # 경로는 그대로 암호화
         play_url = get_api_url(req, "play", {"file": encoded_name})
         
-        # 주소 형태인 경우 파일명이 없으므로 보기 좋게 라벨링 처리
-        if full_path.startswith("http"):
+        display_name = item['title']
+        if display_name == "YouTube Stream":
             display_name = f"YouTube Stream [{idx}]"
-        else:
-            display_name = os.path.basename(full_path)
         
         result.append({
             "idx": idx,
@@ -90,15 +105,15 @@ def make_m3u(req):
         files = get_media_files()
         lines = ["#EXTM3U\n"]
         
-        for index, full_path in enumerate(files, 1):
-            encoded_name = _safe_b64encode(full_path)
+        for index, item in enumerate(files, 1):
+            encoded_name = _safe_b64encode(item['path'])
             play_url = get_api_url(req, "play", {"file": encoded_name})
             
-            if full_path.startswith("http"):
+            display_name = item['title']
+            if display_name == "YouTube Stream":
                 display_name = f"YouTube Stream [{index}]"
-            else:
-                display_name = os.path.basename(full_path)
             
+            # 여기서 지정된 제목(display_name)이 m3u의 채널명으로 들어갑니다!
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
             
         return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
@@ -110,57 +125,34 @@ def play_ffmpeg_copy(encoded_name):
     try:
         P.logger.info("========== [재생 준비 단계] ==========")
         full_path = _safe_b64decode(encoded_name)
-        P.logger.info(f"-> 암호 해독된 최종 재생 시도 경로: {full_path}")
+        P.logger.info(f"-> 최종 재생 시도 경로: {full_path}")
         
-        # 🌟 업그레이드: 유튜브/외부 주소 처리 로직 (yt-dlp 활용)
         if full_path.startswith("http://") or full_path.startswith("https://"):
-            P.logger.info("-> 외부 스트리밍 주소가 감지되었습니다. yt-dlp로 원본 추출을 시도합니다.")
+            P.logger.info("-> yt-dlp 원본 추출 시도")
             try:
                 import yt_dlp
-                # 라이브 스트림과 VOD 모두 안정적으로 가져오는 포맷 설정
-                ydl_opts = {
-                    'format': 'best/best[ext=mp4]', 
-                    'quiet': True, 
-                    'noplaylist': True
-                }
+                ydl_opts = {'format': 'best/best[ext=mp4]', 'quiet': True, 'noplaylist': True}
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(full_path, download=False)
                     stream_url = info.get('url', None)
-                    
                     if stream_url:
-                        P.logger.info("-> [성공] 스트림 주소 추출 완료! 플레이어를 리다이렉트합니다.")
-                        # 앱이나 플레이어에게 진짜 스트림 주소로 가라고 302 신호를 보냅니다.
+                        P.logger.info("-> [성공] 스트림 주소 리다이렉트")
                         return redirect(stream_url, code=302)
                     else:
-                        P.logger.error("-> [실패] 스트림 주소를 추출하지 못했습니다.")
                         return Response("유튜브 스트림 추출 실패", status=500)
-                        
-            except ImportError:
-                P.logger.error("-> [실패] yt-dlp 모듈이 설치되어 있지 않습니다.")
-                return Response("yt-dlp 모듈이 설치되어 있지 않습니다. 도커 컨테이너에 pip install yt-dlp를 실행하세요.", status=500)
             except Exception as e:
                 P.logger.error(f"-> [실패] 유튜브 추출 중 에러: {e}")
                 P.logger.error(traceback.format_exc())
-                return Response(f"유튜브 추출 중 에러: {e}", status=500)
+                return Response(f"유튜브 에러: {e}", status=500)
 
-        # 이하 기존 로컬 파일 FFmpeg 처리 로직 동일
         if not os.path.isfile(full_path):
-            P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
+            P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!!")
             return Response(f"File not found: {full_path}", status=404)
 
         cmd = [
-            "ffmpeg", 
-            "-hide_banner", 
-            "-loglevel", "warning",
-            "-re", 
-            "-i", full_path,
-            "-map", "0:v:0?", 
-            "-map", "0:a:0?",
-            "-c:v", "copy", 
-            "-c:a", "copy",
-            "-muxdelay", "0",
-            "-f", "mpegts",
-            "-"
+            "ffmpeg", "-hide_banner", "-loglevel", "warning", "-re", "-i", full_path,
+            "-map", "0:v:0?", "-map", "0:a:0?", "-c:v", "copy", "-c:a", "copy",
+            "-muxdelay", "0", "-f", "mpegts", "-"
         ]
         
         P.logger.info(f"FFmpeg 전송 시작: {full_path}")
@@ -182,6 +174,6 @@ def play_ffmpeg_copy(encoded_name):
         return Response(generate(), mimetype="video/MP2T")
         
     except Exception as e:
-        P.logger.error(f"재생 처리 중 에러 발생: {str(e)}")
+        P.logger.error(f"재생 처리 에러: {str(e)}")
         P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
