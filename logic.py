@@ -3,7 +3,7 @@ import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
-from flask import Response, stream_with_context, redirect, send_file
+from flask import Response, stream_with_context, redirect, send_file, request
 from framework import SystemModelSetting
 from .setup import P
 
@@ -99,7 +99,12 @@ def get_media_list(req):
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            play_url = get_api_url(req, "play", {"file": encoded_name})
+            
+            # 🌟 [안드로이드 호환성 트릭] ExoPlayer가 파일을 제대로 인식하도록 가짜 확장자를 주소 끝에 달아줍니다.
+            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
+            if not ext: ext = '.mp4'
+            
+            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = f"[{item['category']}] {item['title']}"
             result.append({
@@ -121,7 +126,12 @@ def make_m3u(req):
         for index, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            play_url = get_api_url(req, "play", {"file": encoded_name})
+            
+            # 🌟 [안드로이드 호환성 트릭] M3U에도 확장자 부여
+            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
+            if not ext: ext = '.mp4'
+            
+            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = item['title']
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
@@ -140,7 +150,9 @@ def play_ffmpeg_copy(encoded_name):
             quality = "자동"
             full_path = full_str
             
-        # 🌟 1. 로컬 파일 처리 최우선 격리 (오류 원천 차단)
+        # ==========================================
+        # 1. 로컬 파일 처리 (가장 안전하게 우선 처리)
+        # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
@@ -148,19 +160,26 @@ def play_ffmpeg_copy(encoded_name):
             P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송: {full_path}")
             return send_file(full_path, conditional=True)
             
-        # 🌟 2. 유튜브 처리
+        # ==========================================
+        # 2. 유튜브 처리
+        # ==========================================
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
+        
+        # 🌟 안드로이드 ExoPlayer의 치명적인 HEAD 찌르기 요청을 서버가 뻗지 않게 부드럽게 넘겨줍니다.
+        if request.method == 'HEAD':
+            return Response(status=200, mimetype="video/mp4")
         
         try:
             import yt_dlp
             
-            # [핵심] ExoPlayer 호환을 위해 철저하게 MP4(H.264)와 M4A(AAC)만 추출하도록 강제
+            # 🌟 [VOD 탐색 완벽 지원 옵션] 
+            # 영상+음성이 쪼개지지 않은 가장 화질이 좋은 '합본 MP4' 파일을 가져오도록 옵션을 설정합니다. (보통 720p)
             if quality == "자동":
-                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+                format_str = 'best[ext=mp4]/best'
             elif quality.endswith('p') and quality[:-1].isdigit():
                 max_height = quality[:-1]
-                format_str = f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best'
+                format_str = f'best[height<={max_height}][ext=mp4]/best[height<={max_height}]/best'
             else:
                 format_str = 'best'
                 
@@ -169,55 +188,31 @@ def play_ffmpeg_copy(encoded_name):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(full_path, download=False)
                 is_live = info.get('is_live', False)
-                req_formats = info.get('requested_formats')
+                stream_url = info.get('url') or info.get('manifest_url')
                 
-                # Case A: 비디오와 오디오가 분리된 고화질 VOD일 때 (FFmpeg 실시간 합류)
-                if req_formats and len(req_formats) == 2 and not is_live:
-                    P.logger.info(f"[재생 시작] 안드로이드용 VOD 분리 스트림 병합 전송")
-                    video_url = req_formats[0].get('url')
-                    audio_url = req_formats[1].get('url')
+                if not stream_url:
+                    return Response("스트림 주소 추출 실패", status=500)
                     
-                    headers = req_formats[0].get('http_headers', {})
-                    if headers and 'User-Agent' in headers:
-                        user_agent = headers['User-Agent']
-                        
-                    # 충돌을 유발하던 불안정한 bsf 필터를 완전히 제거하고 원본 그대로 복사(Muxing)
-                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                    cmd.extend(["-user_agent", user_agent])
-                    cmd.extend([
-                        "-i", video_url,
-                        "-i", audio_url,
-                        "-map", "0:v:0", "-map", "1:a:0",
-                        "-c:v", "copy", "-c:a", "copy",
-                        "-fflags", "+genpts",
-                        "-muxdelay", "0", "-f", "mpegts", "-"
-                    ])
+                # 🌟 [VOD] 일반 영상은 무조건 다이렉트 리다이렉트 (앞뒤 넘김 완벽 지원)
+                if not is_live:
+                    P.logger.info(f"[재생 시작] YouTube VOD 다이렉트 리다이렉트 (탐색 지원)")
+                    return redirect(stream_url, code=302)
                 
-                # Case B: 라이브 방송이거나 단일 스트림일 때
-                else:
-                    stream_url = info.get('url') or info.get('manifest_url')
-                    if not stream_url:
-                        return Response("스트림 주소 추출 실패", status=500)
-                        
-                    headers = info.get('http_headers', {})
-                    if headers and 'User-Agent' in headers:
-                        user_agent = headers['User-Agent']
-                        
-                    if not is_live:
-                        P.logger.info(f"[재생 시작] 단일 스트림 VOD 다이렉트 리다이렉트")
-                        return redirect(stream_url, code=302)
+                # 🌟 [LIVE] 라이브 방송만 안전하게 FFmpeg 중계
+                P.logger.info(f"[재생 시작] YouTube 라이브 방송 중계 가동")
+                headers = info.get('http_headers', {})
+                if headers and 'User-Agent' in headers:
+                    user_agent = headers['User-Agent']
                     
-                    P.logger.info(f"[재생 시작] YouTube 라이브 방송 중계 가동")
-                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                    cmd.extend(["-user_agent", user_agent])
-                    cmd.extend([
-                        "-i", stream_url,
-                        "-map", "0:v:0?", "-map", "0:a:0?",
-                        "-c:v", "copy", "-c:a", "copy",
-                        "-fflags", "+genpts",
-                        "-muxdelay", "0", "-f", "mpegts", "-"
-                    ])
-                    
+                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                cmd.extend(["-user_agent", user_agent])
+                cmd.extend([
+                    "-i", stream_url,
+                    "-map", "0:v:0?", "-map", "0:a:0?",
+                    "-c:v", "copy", "-c:a", "copy",
+                    "-muxdelay", "0", "-f", "mpegts", "-"
+                ])
+                
         except Exception as e:
             P.logger.error(f"[재생 실패] 유튜브 추출 에러: {e}")
             P.logger.error(traceback.format_exc())
