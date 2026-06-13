@@ -129,10 +129,14 @@ $("body").on('click', '.play_btn', function(e){
     var popupWidth = 980;
     var leftPos = screen.width - popupWidth;
     
-    window.open('', 'play_popup', "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
+    // 🌟 [핵심] 안드로이드 모바일 브라우저 팝업 캐싱 방지: 매번 고유한 이름을 생성합니다.
+    var uniqueTarget = 'play_popup_' + new Date().getTime();
+    
+    window.open('', uniqueTarget, "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
+    
     form.action = "/videojs";
     form.method = "post";
-    form.target = 'play_popup'; 
+    form.target = uniqueTarget; 
     $('#play_title').val(name);
     $('#play_source_src').val(url);
     $('#play_source_type').val('video/mp2t'); 
