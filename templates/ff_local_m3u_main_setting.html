@@ -9,17 +9,20 @@
   <div class="tab-pane active" id="normal">
     <form id="setting" name="setting">
       
-      <div class="form-group row">
+      <div class="form-group row mt-3">
         <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
         <div class="col-sm-9">
-          <div class="input-group mb-2">
-            <input type="text" id="new_path_input" class="form-control" placeholder="로컬 파일 절대 경로 또는 유튜브 URL 입력">
-            <div class="input-group-append">
-              <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i> 추가</button>
-              <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i> 탐색기</button>
+          <div class="d-flex mb-2">
+            <input type="text" id="new_title_input" class="form-control mr-2" placeholder="채널/제목 (비우면 자동)" style="width: 30%;">
+            <div class="input-group" style="width: 70%;">
+              <input type="text" id="new_path_input" class="form-control" placeholder="로컬 절대 경로 또는 유튜브 URL">
+              <div class="input-group-append">
+                <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i> 추가</button>
+                <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i> 탐색기</button>
+              </div>
             </div>
           </div>
-          <small class="form-text text-muted">경로를 직접 입력 후 [추가]를 누르거나, [탐색기]를 열어 서버 내 파일을 선택하세요.</small>
+          <small class="form-text text-muted">제목을 비워두면 파일명(유튜브는 임시 이름)이 자동으로 들어갑니다.</small>
         </div>
       </div>
 
@@ -28,7 +31,7 @@
         <div class="col-sm-9">
           <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;">
             </ul>
-          <small class="form-text mt-2 text-danger"><b>※ 리스트를 변경한 후에는 반드시 아래 [저장] 버튼을 눌러야 최종 반영됩니다.</b></small>
+          <small class="form-text mt-2 text-danger"><b>※ 리스트를 변경한 후에는 반드시 아래 [저장] 버튼을 눌러야 반영됩니다.</b></small>
         </div>
       </div>
 
@@ -36,7 +39,7 @@
         <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
       </div>
       
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.', '입력한 경로 중 이 확장자를 가진 파일만 등록됩니다. (유튜브 주소는 확장자 무관하게 적용)']) }}
+      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (유튜브 주소는 무관)']) }}
       
       <div class="mt-3">
         {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
@@ -50,73 +53,107 @@
 </div>
 
 <script type="text/javascript">
+// 배열엔 객체 {title: '제목', path: '경로'} 형태로 담습니다.
 var pathArray = [];
 
-// 배열 데이터를 바탕으로 화면에 리스트를 예쁘게 그려주는 함수
+function getFileName(path) {
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+        return "YouTube Stream"; 
+    }
+    var split = path.split(/[\/\\]/);
+    return split[split.length - 1] || path;
+}
+
 function renderList() {
     var html = '';
+    var textLines = [];
+    
     if (pathArray.length === 0) {
         html = '<li class="list-group-item text-center text-muted">등록된 미디어가 없습니다.</li>';
     } else {
         for (var i = 0; i < pathArray.length; i++) {
+            var item = pathArray[i];
+            
             html += '<li class="list-group-item d-flex justify-content-between align-items-center py-2 pr-2">';
-            html += '<span style="word-break: break-all; font-size: 14px;">' + pathArray[i] + '</span>';
-            html += '<button class="btn btn-sm btn-outline-danger delete_path_btn" data-index="' + i + '"><i class="fa fa-trash"></i> 삭제</button>';
+            html += '<div style="word-break: break-all; font-size: 14px; line-height: 1.2;">';
+            html += '  <strong class="text-primary">' + item.title + '</strong><br>';
+            html += '  <small class="text-muted">' + item.path + '</small>';
+            html += '</div>';
+            html += '<button class="btn btn-sm btn-outline-danger delete_path_btn" data-index="' + i + '" style="min-width: 60px;"><i class="fa fa-trash"></i> 삭제</button>';
             html += '</li>';
+            
+            // 파이썬으로 보낼 때는 "제목|경로" 형태로 묶어줍니다.
+            textLines.push(item.title + '|' + item.path);
         }
     }
     $('#path_list_display').html(html);
-    
-    // 화면에 그려짐과 동시에 숨겨진 textarea에도 엔터로 구분해서 값을 갱신 (저장용)
-    $('#media_path').val(pathArray.join('\n'));
+    $('#media_path').val(textLines.join('\n'));
 }
 
-// 아이템을 리스트에 추가하는 함수
-function addPath(newPath) {
+function addPath(newPath, newTitle) {
     newPath = newPath.trim();
+    newTitle = newTitle.trim();
+    
     if (newPath === '') {
-        notify('경로나 주소를 입력하세요.', 'warning');
+        notify('경로나 URL을 입력하세요.', 'warning');
         return;
     }
-    if (pathArray.indexOf(newPath) !== -1) {
-        notify('이미 등록된 경로입니다.', 'warning');
-        return;
+    // 제목이 비어있으면 파일명 또는 기본 이름으로 채움
+    if (newTitle === '') {
+        newTitle = getFileName(newPath);
     }
-    pathArray.push(newPath);
+    
+    // 중복 경로 체크
+    for (var i = 0; i < pathArray.length; i++) {
+        if (pathArray[i].path === newPath) {
+            notify('이미 등록된 경로입니다.', 'warning');
+            return;
+        }
+    }
+    
+    pathArray.push({title: newTitle, path: newPath});
     renderList();
-    $('#new_path_input').val(''); // 입력창 초기화
-    notify('리스트에 추가되었습니다. 모든 작업 후 [저장]을 눌러주세요.', 'success');
+    
+    $('#new_path_input').val('');
+    $('#new_title_input').val('');
+    $('#new_title_input').focus(); 
+    notify('리스트에 추가되었습니다.', 'success');
 }
 
 $(document).ready(function(){
-    // 페이지 접속 시 숨겨진 textarea 값을 읽어와 배열로 만듦
     var initialText = $('#media_path').val().trim();
     if (initialText !== '') {
         var lines = initialText.split('\n');
         for (var i = 0; i < lines.length; i++) {
-            if (lines[i].trim() !== '') {
-                pathArray.push(lines[i].trim());
+            var line = lines[i].trim();
+            if (line !== '') {
+                // 기존 데이터(경로만 있는 경우)와 새 데이터(제목|경로)를 완벽히 호환
+                if (line.indexOf('|') !== -1) {
+                    var parts = line.split('|');
+                    var t = parts[0].trim();
+                    var p = parts.slice(1).join('|').trim();
+                    pathArray.push({title: t, path: p});
+                } else {
+                    pathArray.push({title: getFileName(line), path: line});
+                }
             }
         }
     }
     renderList();
 });
 
-// [추가] 버튼 클릭
 $("body").on('click', '#add_path_btn', function(e){
     e.preventDefault();
-    addPath($('#new_path_input').val());
+    addPath($('#new_path_input').val(), $('#new_title_input').val());
 });
 
-// 입력창에서 엔터키 입력 시 자동 추가
 $('#new_path_input').keypress(function(e){
     if(e.which == 13) {
         e.preventDefault();
-        addPath($('#new_path_input').val());
+        addPath($('#new_path_input').val(), $('#new_title_input').val());
     }
 });
 
-// [삭제] 버튼 클릭 (동적으로 생성된 요소이므로 바인딩 방식 사용)
 $("body").on('click', '.delete_path_btn', function(e){
     e.preventDefault();
     var idx = $(this).data('index');
@@ -124,17 +161,15 @@ $("body").on('click', '.delete_path_btn', function(e){
     renderList();
 });
 
-// [탐색기] 버튼 클릭
 $("body").on('click', '#open_explorer_btn', function(e){
     e.preventDefault();
     var start_path = '/';
-    // 이전에 등록했던 경로가 있다면 그 폴더부터 탐색기를 엽니다.
     if (pathArray.length > 0) {
-        start_path = pathArray[pathArray.length - 1];
+        start_path = pathArray[pathArray.length - 1].path;
     }
     globalSelectLocalFile("미디어 파일 선택", start_path, function(result){
         if (result) {
-            addPath(result);
+            addPath(result, $('#new_title_input').val());
         }
     });
 });
