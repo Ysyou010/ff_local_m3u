@@ -1,29 +1,142 @@
+import os
+import subprocess
+import traceback
+from base64 import urlsafe_b64encode, urlsafe_b64decode
+from urllib.parse import urlencode
+from flask import Response, stream_with_context, redirect
+from framework import SystemModelSetting
+from .setup import P
+
+def get_apikey():
+    try:
+        if SystemModelSetting.get_bool("use_apikey"):
+            return str(SystemModelSetting.get("apikey") or "").strip()
+    except:
+        pass
+    return ""
+
+def get_base_url(req):
+    try:
+        return req.url_root.rstrip("/")
+    except:
+        return ""
+
+def get_api_url(req, endpoint, params=None):
+    if params is None:
+        params = {}
+    apikey = get_apikey()
+    if apikey:
+        params['apikey'] = apikey
+        
+    base = get_base_url(req)
+    query = urlencode(params)
+    url = f"{base}/{P.package_name}/api/{endpoint}" if base else f"/{P.package_name}/api/{endpoint}"
+    return f"{url}?{query}" if query else url
+
+def _safe_b64encode(text):
+    return urlsafe_b64encode(str(text).encode('utf-8')).decode('utf-8').rstrip('=')
+
+def _safe_b64decode(text):
+    padding = '=' * (-len(str(text)) % 4)
+    return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
+
+def get_media_files():
+    media_path_raw = P.ModelSetting.get("media_path")
+    if not media_path_raw:
+        return []
+        
+    ext_setting = P.ModelSetting.get("extensions")
+    valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
+    
+    file_list = []
+    paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
+    
+    for line in paths:
+        if '|' in line:
+            parts = line.split('|', 1)
+            title = parts[0].strip()
+            path = parts[1].strip()
+        else:
+            path = line.strip()
+            title = ""
+        
+        if not title:
+            if path.startswith("http"):
+                title = "YouTube Stream"
+            else:
+                title = os.path.basename(path)
+                
+        if path.startswith("http://") or path.startswith("https://"):
+            file_list.append({"title": title, "path": path})
+        elif os.path.isfile(path):
+            if path.lower().endswith(valid_exts):
+                file_list.append({"title": title, "path": path.replace('\\', '/')})
+        else:
+            P.logger.error(f"[로컬 M3U] 파일이 없거나 폴더입니다: {path}")
+            
+    return file_list
+
+def get_media_list(req):
+    files = get_media_files()
+    result = []
+    
+    for idx, item in enumerate(files, 1):
+        encoded_name = _safe_b64encode(item['path'])
+        play_url = get_api_url(req, "play", {"file": encoded_name})
+        
+        display_name = item['title']
+        if display_name == "YouTube Stream":
+            display_name = f"YouTube Stream [{idx}]"
+        
+        result.append({
+            "idx": idx,
+            "name": display_name,
+            "url": play_url
+        })
+        
+    return result
+
+def make_m3u(req):
+    try:
+        files = get_media_files()
+        lines = ["#EXTM3U\n"]
+        
+        for index, item in enumerate(files, 1):
+            encoded_name = _safe_b64encode(item['path'])
+            play_url = get_api_url(req, "play", {"file": encoded_name})
+            
+            display_name = item['title']
+            if display_name == "YouTube Stream":
+                display_name = f"YouTube Stream [{index}]"
+            
+            lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
+            
+        return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
+    except Exception as e:
+        P.logger.error(traceback.format_exc())
+        return Response(f"make_m3u 생성 중 에러: {str(e)}", status=500)
+
 def play_ffmpeg_copy(encoded_name):
     try:
         P.logger.info("========== [재생 준비 단계] ==========")
         full_path = _safe_b64decode(encoded_name)
         P.logger.info(f"-> 최초 요청 경로: {full_path}")
         
-        # 유튜브 우회를 위한 기본 브라우저 위장 설정
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
-        # 1. 외부 스트림 (유튜브 VOD 및 라이브) 처리 로직
         if full_path.startswith("http://") or full_path.startswith("https://"):
             P.logger.info("-> 외부 스트림 감지. yt-dlp로 라이브/VOD 원본 주소 추출 시도")
             try:
                 import yt_dlp
-                # 'best' 옵션: 영상+음성이 합쳐진 최고 화질 선택 (라이브의 경우 M3U8 자동 선택)
                 ydl_opts = {'format': 'best', 'quiet': True, 'noplaylist': True}
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(full_path, download=False)
-                    # 라이브 스트림은 보통 manifest_url에, VOD는 url에 진짜 주소가 담깁니다.
                     stream_url = info.get('url') or info.get('manifest_url')
                     
                     if stream_url:
                         P.logger.info("-> [성공] 스트림 주소 확보. FFmpeg 프록시 스트리밍을 시작합니다.")
-                        full_path = stream_url # ffmpeg가 읽을 입력 주소를 추출된 주소로 덮어치기
+                        full_path = stream_url
                         
-                        # 403 차단 방지를 위해 yt-dlp가 사용한 진짜 User-Agent 훔쳐오기
                         headers = info.get('http_headers', {})
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
@@ -33,21 +146,16 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(f"-> [실패] 유튜브 추출 중 에러: {e}")
                 P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
-        
-        # 2. 로컬 파일인 경우 검증
         else:
             if not os.path.isfile(full_path):
                 P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
                 return Response(f"File not found: {full_path}", status=404)
 
-        # 3. FFmpeg 명령어 조립
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
         
         if not full_path.startswith("http"):
-            # 로컬 파일은 속도 조절(-re) 필수
             cmd.append("-re")
         else:
-            # 유튜브 등 외부 스트림은 차단 방지를 위해 위장 헤더 추가 (-re는 버퍼링 방지를 위해 생략)
             cmd.extend(["-user_agent", user_agent])
             
         cmd.extend([
