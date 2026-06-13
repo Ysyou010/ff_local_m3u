@@ -7,12 +7,12 @@
 
   {{ macros.m_tab_content_start() }}
   <div class="tab-pane active" id="list">
-    <table id="result_table" class="table table-bordered table-striped table-hover表格-sm">
+    <table id="result_table" class="table table-bordered table-striped table-hover table-sm">
       <thead class="thead-dark">
         <tr>
           <th style="width: 8%; text-align: center;">No</th>
-          <th style="width: 52%;">파일명 (경로)</th>
-          <th style="width: 25%; text-align: center;">Action</th>
+          <th style="width: 70%;">파일명 (경로)</th>
+          <th style="width: 22%; text-align: center;">Action</th>
         </tr>
       </thead>
       <tbody id="list_tbody">
@@ -24,13 +24,10 @@
 </div>
 
 <script type="text/javascript">
-var package_name = "{{ arg['package_name'] }}";
-var sub = "{{ arg['sub'] }}";
-
 $(document).ready(function(){
-    // 페이지가 열리자마자 백엔드(mod_main.py)에 파일 목록 데이터를 요청합니다.
+    // 변수 참조 에러를 막기 위해 플러그인 주소를 완벽하게 하드코딩했습니다.
     $.ajax({
-        url: '/' + package_name + '/ajax/main/get_list',
+        url: '/ff_local_m3u/ajax/main/get_list',
         type: "POST",
         cache: false,
         success: function (data) {
@@ -41,27 +38,22 @@ $(document).ready(function(){
             }
         },
         error: function() {
-            $('#list_tbody').html('<tr><td colspan="3" class="text-center class-danger p-4">서버와 통신 중 에러가 발생했습니다.</td></tr>');
+            $('#list_tbody').html('<tr><td colspan="3" class="text-center text-danger p-4">서버와 통신 중 에러가 발생했습니다.</td></tr>');
         }
     });
 });
 
-// 백엔드에서 받은 json 데이터를 바탕으로 HTML 표를 안전하게 그려내는 함수입니다.
 function make_list(data) {
     var html = '';
     for (var i = 0; i < data.length; i++) {
         var item = data[i];
-        
         html += '<tr>';
-        // 1. 번호 출력
         html += '<td style="text-align: center; vertical-align: middle;">' + item.idx + '</td>';
         
-        // 2. 파일 경로 및 주소 정보 출력 (글자가 깨지거나 붙지 않도록 분리)
         html += '<td style="vertical-align: middle; word-break: break-all;">';
         html += '  <span class="font-weight-bold">' + item.name + '</span>';
         html += '</td>';
         
-        // 3. 우측에 깔끔한 재생 및 링크 복사 버튼 배치
         html += '<td style="text-align: center; vertical-align: middle;">';
         html += '  <div class="btn-group btn-group-sm" role="group">';
         html += '    <a href="' + item.url + '" target="_blank" class="btn btn-info btn-sm">웹재생</a>';
@@ -73,7 +65,6 @@ function make_list(data) {
     $('#list_tbody').html(html);
 }
 
-// 주소 복사 버튼 기능 활성화
 $("body").on('click', '.btn-clipboard', function(e){
     e.preventDefault();
     var text = $(this).attr('data-clipboard-text');
