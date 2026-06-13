@@ -30,11 +30,7 @@ var categories = [];
 var current_category = "전체";
 
 $(document).ready(function(){
-    console.log("[디버그] 재생 목록 프레임워크 전용 채널 요청 시작");
-    
-    // 🌟 위험한 $.ajax 통신을 지우고 순정 프레임워크 연동 함수로 완벽 변환하여 500 에러를 원천 차단합니다.
     globalSendCommand('get_list', null, null, null, function(data) {
-        console.log("[디버그] 순정 통신 응답 성공:", data);
         if (data.ret == "success") {
             current_data = data.list;
             extractCategories(); 
