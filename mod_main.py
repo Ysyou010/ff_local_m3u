@@ -40,7 +40,6 @@ class ModuleMain(PluginModuleBase):
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
             
-            # 프레임워크 순정 저장 기능
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
                 
         except Exception as e:
@@ -48,21 +47,27 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return jsonify({"ret": "error", "msg": str(e)})
 
-def process_api(self, sub, req):
+    def process_api(self, sub, req):
         try:
-            # --- [로그 추적 시작] ---
-            P.logger.info("========== [M3U 스트리밍 요청 수신] ==========")
-            P.logger.info(f"1. 전체 요청 URL: {req.url}")
-            P.logger.info(f"2. 수신된 sub 경로: {sub}")
+            P.logger.info(f"========== [API 요청 수신] sub: {sub} ==========")
             
-            if sub == "m3u":
-                return logic.make_m3u(req)
+            # 주소 끝에 슬래시나 파라미터가 붙어 있어도 m3u로 정확히 인식하도록 강화
+            if sub == "m3u" or sub.startswith("m3u"):
+                ret = logic.make_m3u(req)
+                if ret is None:
+                    return Response("make_m3u 함수가 아무것도 반환하지 않았습니다.", status=500)
+                return ret
             
             if sub.startswith("play/ffmpeg/"):
                 encoded_name = sub.split("play/ffmpeg/")[1]
-                P.logger.info(f"3. 분리된 암호화 문자열: {encoded_name}")
-                return logic.play_ffmpeg_copy(encoded_name)
+                ret = logic.play_ffmpeg_copy(encoded_name)
+                if ret is None:
+                    return Response("play_ffmpeg_copy 함수가 아무것도 반환하지 않았습니다.", status=500)
+                return ret
                 
+            # 조건에 안 맞더라도 None으로 죽지 않고 화면에 이유를 출력하도록 방어 로직 추가
+            return Response(f"알 수 없는 API 요청입니다. (입력된 sub 값: {sub})", status=400)
+            
         except Exception as e:
             P.logger.error(f"Exception:{str(e)}")
             P.logger.error(traceback.format_exc())
