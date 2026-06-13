@@ -151,12 +151,14 @@ def play_ffmpeg_copy(encoded_name):
                 return Response(f"File not found: {full_path}", status=404)
                 
             P.logger.info(f"[방송 송출] 로컬 파일을 IPTV 실시간 스트림으로 인코딩: {full_path}")
-            # -re 옵션이 정적 파일을 실시간 방송 배속(1배속)으로 강제 변환합니다.
             cmd.extend(["-re", "-i", full_path])
             cmd.extend([
                 "-map", "0:v:0?", "-map", "0:a:0?",
                 "-c:v", "copy", "-c:a", "copy",
-                "-muxdelay", "0", "-f", "mpegts", "-"
+                "-muxdelay", "0", 
+                "-mpegts_flags", "resend_headers", # [수정됨] ExoPlayer 재생 안정을 위한 헤더 반복 전송
+                "-pcr_period", "40",               # [수정됨] 타임스탬프 동기화 안정성 강화
+                "-f", "mpegts", "-"
             ])
             
         # ==========================================
@@ -167,7 +169,6 @@ def play_ffmpeg_copy(encoded_name):
             try:
                 import yt_dlp
                 
-                # 안전한 재생을 위해 안드로이드 전용 H.264(avc1) 코덱 규격 타겟팅
                 if quality in ["1080p", "1440p", "2160p"]:
                     max_height = quality[:-1]
                     format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]'
@@ -198,7 +199,10 @@ def play_ffmpeg_copy(encoded_name):
                         "-c:v", "copy", "-c:a", "copy",
                         "-bsf:v", "h264_mp4toannexb",
                         "-fflags", "+genpts",
-                        "-muxdelay", "0", "-f", "mpegts", "-"
+                        "-muxdelay", "0", 
+                        "-mpegts_flags", "resend_headers", # [수정됨] ExoPlayer 재생 안정을 위한 헤더 반복 전송
+                        "-pcr_period", "40",               # [수정됨] 타임스탬프 동기화 안정성 강화
+                        "-f", "mpegts", "-"
                     ])
             except Exception as e:
                 P.logger.error(f"[재생 실패] 유튜브 파싱 에러: {e}")
@@ -207,13 +211,16 @@ def play_ffmpeg_copy(encoded_name):
         # ==========================================
         # 3. 통합 실시간 미디어 스트림 출력 (IPTV 규격 통일)
         # ==========================================
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        # [수정됨] stderr=subprocess.DEVNULL 로 변경하여 장시간 재생 시 파이프라인 데드락(멈춤) 방지
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         
         @stream_with_context
         def generate_live_stream():
             try:
+                # [수정됨] 청크 버퍼 사이즈 확대 (약 192KB) - ExoPlayer 버퍼 언더플로우 방지
+                chunk_size = 188 * 1024 
                 while True:
-                    chunk = proc.stdout.read(188 * 32)
+                    chunk = proc.stdout.read(chunk_size)
                     if not chunk:
                         break
                     yield chunk
@@ -222,7 +229,13 @@ def play_ffmpeg_copy(encoded_name):
                     proc.kill()
                 P.logger.info("[송출 종료] 실시간 IPTV 파이프라인 닫힘")
 
-        return Response(generate_live_stream(), mimetype="video/MP2T")
+        # [수정됨] 스트리밍용 HTTP 응답 헤더 명시적 추가
+        response = Response(generate_live_stream(), mimetype="video/MP2T")
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Connection'] = 'keep-alive'
+        
+        return response
 
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
