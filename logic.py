@@ -40,8 +40,6 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
-# --- logic.py 기존 코드 유지 부분 생략 ---
-
 def get_media_files(target_category=None):
     media_path_raw = P.ModelSetting.get("media_path")
     if not media_path_raw:
@@ -54,43 +52,53 @@ def get_media_files(target_category=None):
     paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
     
     for line in paths:
-        # 데이터 분리 (카테고리|제목|경로)
         parts = line.split('|')
-        if len(parts) >= 3:
+        
+        # 저장 포맷 100% 하위 호환 처리
+        if len(parts) >= 4:
             category = parts[0].strip()
             title = parts[1].strip()
-            path = parts.slice(2).join('|').strip() if hasattr(parts, 'slice') else '|'.join(parts[2:]).strip()
+            quality = parts[2].strip()
+            path = "|".join(parts[3:]).strip()
+        elif len(parts) == 3:
+            category = parts[0].strip()
+            title = parts[1].strip()
+            quality = "자동"
+            path = "|".join(parts[2:]).strip()
         elif len(parts) == 2:
             category = "기본"
             title = parts[0].strip()
+            quality = "자동"
             path = parts[1].strip()
         else:
             category = "기본"
             title = ""
+            quality = "자동"
             path = line.strip()
             
         if not title:
             title = "YouTube Stream" if path.startswith("http") else os.path.basename(path)
 
-        # ★ 요청한 카테고리가 있고, 'all'이 아니며, 현재 줄의 카테고리와 다르면 건너뜀!
         if target_category and target_category != 'all' and category != target_category:
             continue
             
         if path.startswith("http://") or path.startswith("https://"):
-            file_list.append({"category": category, "title": title, "path": path})
+            file_list.append({"category": category, "title": title, "quality": quality, "path": path})
         elif os.path.isfile(path):
             if path.lower().endswith(valid_exts):
-                file_list.append({"category": category, "title": title, "path": path.replace('\\', '/')})
+                file_list.append({"category": category, "title": title, "quality": quality, "path": path.replace('\\', '/')})
         else:
             P.logger.error(f"[로컬 M3U] 파일이 없거나 폴더입니다: {path}")
             
     return file_list
 
 def get_media_list(req):
-    files = get_media_files('all') # 플러그인 자체 목록 화면에서는 무조건 전체 표시
+    files = get_media_files('all')
     result = []
     for idx, item in enumerate(files, 1):
-        encoded_name = _safe_b64encode(item['path'])
+        # 🌟 화질 파라미터를 재생 주소에 함께 암호화해서 전송합니다
+        encoded_payload = f"{item['quality']}||{item['path']}"
+        encoded_name = _safe_b64encode(encoded_payload)
         play_url = get_api_url(req, "play", {"file": encoded_name})
         
         display_name = f"[{item['category']}] {item['title']}"
@@ -103,19 +111,17 @@ def get_media_list(req):
 
 def make_m3u(req):
     try:
-        # URL에서 요청한 재생목록 ID(카테고리명)를 가져옴. 파라미터가 없으면 'all' (전체)
         target_category = req.args.get('id', 'all')
-        
-        # 해당 카테고리만 필터링해서 가져오기
         files = get_media_files(target_category)
         lines = ["#EXTM3U\n"]
         
         for index, item in enumerate(files, 1):
-            encoded_name = _safe_b64encode(item['path'])
+            # 🌟 화질 파라미터를 함께 넘깁니다
+            encoded_payload = f"{item['quality']}||{item['path']}"
+            encoded_name = _safe_b64encode(encoded_payload)
             play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = item['title']
-            
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
             
         return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
@@ -123,28 +129,44 @@ def make_m3u(req):
         P.logger.error(traceback.format_exc())
         return Response(f"make_m3u 생성 중 에러: {str(e)}", status=500)
 
-# --- 이하 play_ffmpeg_copy 함수는 기존 코드 유지 ---
-
 def play_ffmpeg_copy(encoded_name):
     try:
         P.logger.info("========== [재생 준비 단계] ==========")
-        full_path = _safe_b64decode(encoded_name)
-        P.logger.info(f"-> 최초 요청 경로: {full_path}")
+        full_str = _safe_b64decode(encoded_name)
+        
+        # 🌟 기존에 암호화된 주소와 완벽하게 호환되도록 처리
+        if "||" in full_str:
+            quality, full_path = full_str.split("||", 1)
+        else:
+            quality = "자동"
+            full_path = full_str
+            
+        P.logger.info(f"-> 최초 요청 경로: {full_path} (요청 화질: {quality})")
         
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
-        # 1. 유튜브 등 외부 스트림 처리
         if full_path.startswith("http://") or full_path.startswith("https://"):
             P.logger.info("-> 외부 스트림 감지. yt-dlp로 라이브/VOD 원본 주소 추출 시도")
             try:
                 import yt_dlp
-                ydl_opts = {'format': 'best', 'quiet': True, 'noplaylist': True}
+                
+                # 🌟 선택한 화질에 맞춰 포맷 옵션(ydl_opts)을 동적으로 생성
+                format_str = 'best'
+                if quality == '1080p':
+                    format_str = 'best[height<=1080]/best'
+                elif quality == '720p':
+                    format_str = 'best[height<=720]/best'
+                elif quality == '480p':
+                    format_str = 'best[height<=480]/best'
+                    
+                ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(full_path, download=False)
                     stream_url = info.get('url') or info.get('manifest_url')
                     
                     if stream_url:
-                        P.logger.info("-> [성공] 스트림 주소 확보. FFmpeg 프록시 스트리밍을 시작합니다.")
+                        P.logger.info(f"-> [성공] {quality} 스트림 주소 확보. FFmpeg 프록시를 시작합니다.")
                         full_path = stream_url
                         
                         headers = info.get('http_headers', {})
@@ -157,7 +179,6 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
             
-            # 외부 스트림은 구간 탐색 없이 FFmpeg로 실시간 중계 (기존과 동일)
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
             cmd.extend(["-user_agent", user_agent])
             cmd.extend([
@@ -185,14 +206,12 @@ def play_ffmpeg_copy(encoded_name):
 
             return Response(generate(), mimetype="video/MP2T")
 
-        # 2. 로컬 파일 처리 (★ 구간 탐색 완벽 지원 ★)
         else:
             if not os.path.isfile(full_path):
                 P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
                 return Response(f"File not found: {full_path}", status=404)
             
             P.logger.info(f"-> [로컬 파일] 다이렉트 전송 시작 (구간 탐색/HTTP Range 지원)")
-            # conditional=True 속성이 안드로이드/팟플레이어의 앞뒤 이동(Seek) 요청을 완벽하게 처리해 줍니다.
             return send_file(full_path, conditional=True)
             
     except Exception as e:
