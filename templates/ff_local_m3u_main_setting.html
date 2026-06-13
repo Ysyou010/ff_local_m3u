@@ -21,6 +21,9 @@
               <option value="1080p">1080p</option>
               <option value="720p">720p</option>
               <option value="480p">480p</option>
+              <option value="360p">360p</option>
+              <option value="240p">240p</option>
+              <option value="144p">144p (최저)</option>
             </select>
             
             <div class="input-group" style="width: 47%;">
@@ -86,7 +89,6 @@ function renderList() {
     
     for (var i = 0; i < pathArray.length; i++) {
         categories.add(pathArray[i].category);
-        // 카테고리 | 제목 | 화질 | 경로 형태로 저장
         textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].quality + '|' + pathArray[i].path);
     }
     
@@ -119,7 +121,6 @@ function renderList() {
             html += '<li class="list-group-item d-flex justify-content-between align-items-center py-2 pr-2">';
             html += '<div style="word-break: break-all; font-size: 14px; line-height: 1.2;">';
             html += '  <span class="badge badge-info mr-1">' + item.category + '</span>';
-            // 화질 뱃지 표시
             html += '  <span class="badge badge-warning mr-2">' + item.quality + '</span>';
             html += '  <strong class="text-primary">' + item.title + '</strong><br>';
             html += '  <small class="text-muted">' + item.path + '</small>';
@@ -197,7 +198,6 @@ $(document).ready(function(){
             var line = lines[i].trim();
             if (line !== '') {
                 var parts = line.split('|');
-                // 기존 데이터 호환성 보장 로직
                 if (parts.length >= 4) {
                     pathArray.push({category: parts[0].trim(), title: parts[1].trim(), quality: parts[2].trim(), path: parts.slice(3).join('|').trim()});
                 } else if (parts.length === 3) {
