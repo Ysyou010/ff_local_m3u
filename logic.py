@@ -147,11 +147,11 @@ def play_ffmpeg_copy(encoded_name):
             try:
                 import yt_dlp
                 
-                # 🌟 [안드로이드 호환 규격 필터링링] 비디오는 mp4(h264), 오디오는 m4a(aac) 포맷만 타겟팅팅합니다.
-                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+                # 🌟 [코덱 강제 고정] ExoPlayer가 무조건 인식할 수 있도록 H.264(avc1) 코덱만 골라오도록 필터 강화
+                format_str = 'bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/best[vcodec^=avc1]/best'
                 if quality.endswith('p') and quality[:-1].isdigit():
                     max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best[height<={max_height}]'
+                    format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<={max_height}][vcodec^=avc1]/best[height<={max_height}]'
                     
                 ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
                 
@@ -160,9 +160,8 @@ def play_ffmpeg_copy(encoded_name):
                     is_live = info.get('is_live', False)
                     req_formats = info.get('requested_formats')
                     
-                    # Case 1: 고화질 분리형 파일 포맷 스트림 재생 단계
                     if req_formats and len(req_formats) == 2 and not is_live:
-                        P.logger.info(f"[재생 시작] 안드로이드용 고화질 VOD 복합 스트림 프록시 전송 ({quality})")
+                        P.logger.info(f"[재생 시작] 안드로이드 호환 고화질 VOD 복합 스트림 프록시 ({quality})")
                         video_url = req_formats[0].get('url')
                         audio_url = req_formats[1].get('url')
                         
@@ -177,12 +176,12 @@ def play_ffmpeg_copy(encoded_name):
                             "-i", audio_url,
                             "-map", "0:v:0", "-map", "1:a:0",
                             "-c:v", "copy", "-c:a", "copy",
-                            "-fflags", "+genpts",              # 🌟 ExoPlayer 싱크용 타임스탬프 재작성 옵션
-                            "-max_interleave_delta", "0",      # 🌟 스트리밍 버퍼 끊김 방지 최적화 옵션
+                            "-bsf:v", "h264_mp4toannexb",      # 🌟 [핵심] 안드로이드 블랙스크린 방지 비트스트림 필터 추가
+                            "-fflags", "+genpts",
+                            "-max_interleave_delta", "0",
                             "-muxdelay", "0", "-f", "mpegts", "-"
                         ])
                     
-                    # Case 2: 라이브 방송이거나 단일 저화질 스트림일 때
                     else:
                         stream_url = info.get('url') or info.get('manifest_url')
                         if not stream_url:
@@ -203,6 +202,7 @@ def play_ffmpeg_copy(encoded_name):
                             "-i", stream_url,
                             "-map", "0:v:0?", "-map", "0:a:0?",
                             "-c:v", "copy", "-c:a", "copy",
+                            "-bsf:v", "h264_mp4toannexb",      # 🌟 라이브 방송 시에도 필터 적용
                             "-fflags", "+genpts",
                             "-max_interleave_delta", "0",
                             "-muxdelay", "0", "-f", "mpegts", "-"
