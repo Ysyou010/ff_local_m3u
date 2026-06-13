@@ -156,8 +156,8 @@ def play_ffmpeg_copy(encoded_name):
                 "-map", "0:v:0?", "-map", "0:a:0?",
                 "-c:v", "copy", "-c:a", "copy",
                 "-muxdelay", "0", 
-                "-mpegts_flags", "resend_headers", # [수정됨] ExoPlayer 재생 안정을 위한 헤더 반복 전송
-                "-pcr_period", "40",               # [수정됨] 타임스탬프 동기화 안정성 강화
+                "-mpegts_flags", "resend_headers", # ExoPlayer 재생 안정을 위한 헤더 반복 전송
+                "-pcr_period", "40",               # 타임스탬프 동기화 안정성 강화
                 "-f", "mpegts", "-"
             ])
             
@@ -197,11 +197,11 @@ def play_ffmpeg_copy(encoded_name):
                         
                     cmd.extend([
                         "-c:v", "copy", "-c:a", "copy",
-                        "-bsf:v", "h264_mp4toannexb",
+                        # [수정됨] m3u8 및 실시간 스트림에서 FFmpeg가 크래시되는 원인인 비트스트림 필터 삭제
                         "-fflags", "+genpts",
                         "-muxdelay", "0", 
-                        "-mpegts_flags", "resend_headers", # [수정됨] ExoPlayer 재생 안정을 위한 헤더 반복 전송
-                        "-pcr_period", "40",               # [수정됨] 타임스탬프 동기화 안정성 강화
+                        "-mpegts_flags", "resend_headers", 
+                        "-pcr_period", "40",               
                         "-f", "mpegts", "-"
                     ])
             except Exception as e:
@@ -211,14 +211,14 @@ def play_ffmpeg_copy(encoded_name):
         # ==========================================
         # 3. 통합 실시간 미디어 스트림 출력 (IPTV 규격 통일)
         # ==========================================
-        # [수정됨] stderr=subprocess.DEVNULL 로 변경하여 장시간 재생 시 파이프라인 데드락(멈춤) 방지
+        # stderr=subprocess.DEVNULL 로 변경하여 장시간 재생 시 파이프라인 데드락(멈춤) 방지
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         
         @stream_with_context
         def generate_live_stream():
             try:
-                # [수정됨] 청크 버퍼 사이즈 확대 (약 192KB) - ExoPlayer 버퍼 언더플로우 방지
-                chunk_size = 188 * 1024 
+                # [수정됨] 초기 응답(TTFB)을 빠르게 하기 위해 청크 버퍼 사이즈 다시 축소
+                chunk_size = 188 * 32 
                 while True:
                     chunk = proc.stdout.read(chunk_size)
                     if not chunk:
@@ -229,7 +229,7 @@ def play_ffmpeg_copy(encoded_name):
                     proc.kill()
                 P.logger.info("[송출 종료] 실시간 IPTV 파이프라인 닫힘")
 
-        # [수정됨] 스트리밍용 HTTP 응답 헤더 명시적 추가
+        # 스트리밍용 HTTP 응답 헤더 명시적 추가
         response = Response(generate_live_stream(), mimetype="video/MP2T")
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
