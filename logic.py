@@ -76,7 +76,8 @@ def get_media_list(req):
     
     for idx, file_path in enumerate(files, 1):
         encoded_name = _safe_b64encode(file_path)
-        play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
+        # 슬래시 에러를 피하기 위해 ?file= 파라미터 방식으로 주소 생성
+        play_url = get_api_url(req, "play", {"file": encoded_name})
         
         result.append({
             "idx": idx,
@@ -93,7 +94,8 @@ def make_m3u(req):
         
         for index, file_path in enumerate(files, 1):
             encoded_name = _safe_b64encode(file_path)
-            play_url = get_api_url(req, f"play/ffmpeg/{encoded_name}")
+            # 슬래시 에러를 피하기 위해 ?file= 파라미터 방식으로 주소 생성
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             lines.append(f'#EXTINF:-1 tvg-name="{file_path}" tvg-chno="{index}",{file_path}\n{play_url}\n')
             
@@ -104,10 +106,13 @@ def make_m3u(req):
 
 def play_ffmpeg_copy(encoded_name):
     try:
+        P.logger.info("========== [FFmpeg 재생 준비 단계] ==========")
         rel_path = _safe_b64decode(encoded_name)
-        media_path = P.ModelSetting.get("media_path")
+        P.logger.info(f"-> 암호 해독된 파일명(또는 경로): {rel_path}")
         
+        media_path = P.ModelSetting.get("media_path")
         if not media_path:
+            P.logger.error("-> [실패] 미디어 경로가 설정되어 있지 않습니다.")
             return Response("Media path is not configured.", status=400)
             
         media_path = media_path.strip()
@@ -116,8 +121,11 @@ def play_ffmpeg_copy(encoded_name):
             full_path = media_path
         else:
             full_path = os.path.join(media_path, rel_path)
+            
+        P.logger.info(f"-> 최종 재생 시도 경로: {full_path}")
         
         if not os.path.isfile(full_path):
+            P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
             return Response(f"File not found: {full_path}", status=404)
 
         cmd = [
@@ -135,7 +143,7 @@ def play_ffmpeg_copy(encoded_name):
             "-"
         ]
         
-        P.logger.info(f"FFmpeg Play Start: {full_path}")
+        P.logger.info(f"FFmpeg 전송 시작: {full_path}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
@@ -149,11 +157,11 @@ def play_ffmpeg_copy(encoded_name):
             finally:
                 if proc.poll() is None:
                     proc.kill()
-                P.logger.info(f"FFmpeg Play End: {full_path}")
+                P.logger.info(f"FFmpeg 전송 종료: {full_path}")
 
         return Response(generate(), mimetype="video/MP2T")
         
     except Exception as e:
-        P.logger.error(f"Exception: {str(e)}")
+        P.logger.error(f"재생 처리 중 에러 발생: {str(e)}")
         P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
