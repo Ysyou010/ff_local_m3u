@@ -48,13 +48,19 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return jsonify({"ret": "error", "msg": str(e)})
 
-    def process_api(self, sub, req):
+def process_api(self, sub, req):
         try:
+            # --- [로그 추적 시작] ---
+            P.logger.info("========== [M3U 스트리밍 요청 수신] ==========")
+            P.logger.info(f"1. 전체 요청 URL: {req.url}")
+            P.logger.info(f"2. 수신된 sub 경로: {sub}")
+            
             if sub == "m3u":
                 return logic.make_m3u(req)
             
             if sub.startswith("play/ffmpeg/"):
                 encoded_name = sub.split("play/ffmpeg/")[1]
+                P.logger.info(f"3. 분리된 암호화 문자열: {encoded_name}")
                 return logic.play_ffmpeg_copy(encoded_name)
                 
         except Exception as e:
