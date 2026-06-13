@@ -34,13 +34,14 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return error_msg
 
-    def process_command(self, command, arg1, arg2, arg3, req):
+    # 🌟 [수정된 부분] 함수 이름을 process_command 에서 process_ajax 로 변경했습니다!
+    def process_ajax(self, sub, req):
         try:
-            if command == "get_list":
+            if sub == "get_list":
                 ret = {"ret": "success", "list": logic.get_media_list(req)}
                 return jsonify(ret)
             
-            return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
+            return super(ModuleMain, self).process_ajax(sub, req)
                 
         except Exception as e:
             P.logger.error(f"Exception:{str(e)}")
@@ -57,7 +58,6 @@ class ModuleMain(PluginModuleBase):
                     return Response("make_m3u 함수가 반환값이 없습니다.", status=500)
                 return ret
             
-            # 슬래시 대신 파라미터 방식으로 안전하게 수신하도록 변경!
             if sub == "play":
                 encoded_name = req.args.get("file")
                 if not encoded_name:
