@@ -100,21 +100,33 @@ def make_m3u(req):
 
 def play_ffmpeg_copy(encoded_name):
     try:
+        P.logger.info("========== [FFmpeg 재생 준비 단계] ==========")
         rel_path = _safe_b64decode(encoded_name)
+        P.logger.info(f"4. 암호 해독된 파일명(또는 경로): {rel_path}")
+        
         media_path = P.ModelSetting.get("media_path")
+        P.logger.info(f"5. DB에 저장된 기본 미디어 경로: {media_path}")
         
         if not media_path:
+            P.logger.error("-> [실패] 미디어 경로가 설정되어 있지 않습니다.")
             return Response("Media path is not configured.", status=400)
             
         media_path = media_path.strip()
             
         if os.path.isfile(media_path):
             full_path = media_path
+            P.logger.info("-> 기본 경로가 [단일 파일]로 인식되었습니다.")
         else:
             full_path = os.path.join(media_path, rel_path)
+            P.logger.info("-> 기본 경로가 [폴더]로 인식되어 파일명과 결합했습니다.")
+            
+        P.logger.info(f"6. 최종 재생을 시도할 절대 경로: {full_path}")
         
         if not os.path.isfile(full_path):
+            P.logger.error(f"-> [실패] 해당 경로에 실제 파일이 존재하지 않습니다!! (404 Error)")
             return Response(f"File not found: {full_path}", status=404)
+
+        P.logger.info("-> [성공] 파일 확인 완료! FFmpeg 전송을 시작합니다.")
 
         cmd = [
             "ffmpeg", 
@@ -131,7 +143,7 @@ def play_ffmpeg_copy(encoded_name):
             "-"
         ]
         
-        P.logger.info(f"FFmpeg Play Start: {full_path}")
+        P.logger.info(f"FFmpeg 명령어: {' '.join(cmd)}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
@@ -145,11 +157,11 @@ def play_ffmpeg_copy(encoded_name):
             finally:
                 if proc.poll() is None:
                     proc.kill()
-                P.logger.info(f"FFmpeg Play End: {full_path}")
+                P.logger.info(f"FFmpeg 전송 종료: {full_path}")
 
         return Response(generate(), mimetype="video/MP2T")
         
     except Exception as e:
-        P.logger.error(f"Exception: {str(e)}")
+        P.logger.error(f"재생 처리 중 에러 발생: {str(e)}")
         P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
