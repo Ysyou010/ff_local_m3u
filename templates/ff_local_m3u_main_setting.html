@@ -45,7 +45,7 @@
             <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
               <option value="전체">전체 카테고리</option>
             </select>
-            <small class="text-danger"><b>※ 순서 변경 및 삭제 후 반드시 [저장]을 눌러주세요.</b></small>
+            <small class="text-primary"><b><i class="fa fa-check-circle"></i> 목록을 추가/삭제/이동하면 즉시 자동 저장됩니다.</b></small>
           </div>
           <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;"></ul>
         </div>
@@ -55,7 +55,7 @@
         <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
       </div>
       
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.']) }}
+      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (지원 확장자 수정 시에만 수동으로 아래 저장 버튼 클릭)']) }}
       
       <div class="mt-3">
         {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
@@ -83,6 +83,11 @@ function getFileName(path) {
     return split[split.length - 1] || path;
 }
 
+// ★ 리스트 변경 시 프레임워크 자체의 [저장] 버튼 기능을 백그라운드에서 강제로 호출하는 함수
+function autoSaveList() {
+    $('#globalSettingSaveBtn').click();
+}
+
 function renderList() {
     var categories = new Set();
     var textLines = [];
@@ -92,6 +97,7 @@ function renderList() {
         textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].quality + '|' + pathArray[i].path);
     }
     
+    // 숨겨진 영역에 데이터를 쓴 뒤, 이를 기반으로 서버와 통신합니다.
     $('#media_path').val(textLines.join('\n'));
     
     var filterHtml = '<option value="전체">전체 카테고리 (' + pathArray.length + ')</option>';
@@ -188,6 +194,9 @@ function addPath(newCategory, newTitle, newQuality, newPath) {
     $('#new_title_input').val('');
     $('#new_quality_select').val('자동');
     $('#new_path_input').focus(); 
+    
+    // ★ 항목이 추가된 직후 자동 저장 트리거
+    autoSaveList();
 }
 
 $(document).ready(function(){
@@ -234,6 +243,9 @@ $("body").on('click', '.move_btn', function(e){
     if (idx1 >= 0 && idx2 >= 0) {
         var temp = pathArray[idx1]; pathArray[idx1] = pathArray[idx2]; pathArray[idx2] = temp;
         renderList();
+        
+        // ★ 순서 변경 직후 자동 저장 트리거
+        autoSaveList();
     }
 });
 
@@ -241,6 +253,9 @@ $("body").on('click', '.delete_path_btn', function(e){
     e.preventDefault();
     pathArray.splice($(this).data('idx'), 1);
     renderList();
+    
+    // ★ 삭제 직후 자동 저장 트리거
+    autoSaveList();
 });
 
 $("body").on('click', '#open_explorer_btn', function(e){
