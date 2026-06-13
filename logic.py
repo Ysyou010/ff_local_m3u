@@ -41,71 +41,88 @@ def _safe_b64decode(text):
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
 def get_media_files(target_category=None):
-    media_path_raw = P.ModelSetting.get("media_path")
-    if not media_path_raw:
-        return []
-        
-    ext_setting = P.ModelSetting.get("extensions")
-    valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
-    
-    file_list = []
-    paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
-    
-    for line in paths:
-        parts = line.split('|')
-        
-        if len(parts) >= 4:
-            category = parts[0].strip()
-            title = parts[1].strip()
-            quality = parts[2].strip()
-            path = "|".join(parts[3:]).strip()
-        elif len(parts) == 3:
-            category = parts[0].strip()
-            title = parts[1].strip()
-            quality = "자동"
-            path = "|".join(parts[2:]).strip()
-        elif len(parts) == 2:
-            category = "기본"
-            title = parts[0].strip()
-            quality = "자동"
-            path = parts[1].strip()
-        else:
-            category = "기본"
-            title = ""
-            quality = "자동"
-            path = line.strip()
+    try:
+        media_path_raw = P.ModelSetting.get("media_path")
+        if not media_path_raw:
+            P.logger.info("[디버그 logic] 저장된 미디어 경로 데이터가 비어있습니다.")
+            return []
             
-        if not title:
-            title = "YouTube Stream" if path.startswith("http") else os.path.basename(path)
+        ext_setting = P.ModelSetting.get("extensions")
+        valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
+        
+        file_list = []
+        paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
+        
+        P.logger.info(f"[디버그 logic] 총 {len(paths)}개의 원본 라인을 파싱하기 시작합니다.")
+        
+        for line in paths:
+            parts = line.split('|')
+            
+            # 파이썬 표준 슬라이싱 기법으로 문법적 결함 완벽 방어 처리 완료
+            if len(parts) >= 4:
+                category = parts[0].strip()
+                title = parts[1].strip()
+                quality = parts[2].strip()
+                path = "|".join(parts[3:]).strip()
+            elif len(parts) == 3:
+                category = parts[0].strip()
+                title = parts[1].strip()
+                quality = "자동"
+                path = "|".join(parts[2:]).strip()
+            elif len(parts) == 2:
+                category = "기본"
+                title = parts[0].strip()
+                quality = "자동"
+                path = parts[1].strip()
+            else:
+                category = "기본"
+                title = ""
+                quality = "자동"
+                path = line.strip()
+                
+            if not title:
+                title = "YouTube Stream" if path.startswith("http") else os.path.basename(path)
 
-        if target_category and target_category != 'all' and category != target_category:
-            continue
-            
-        if path.startswith("http://") or path.startswith("https://"):
-            file_list.append({"category": category, "title": title, "quality": quality, "path": path})
-        elif os.path.isfile(path):
-            if path.lower().endswith(valid_exts):
-                file_list.append({"category": category, "title": title, "quality": quality, "path": path.replace('\\', '/')})
-        else:
-            P.logger.error(f"[로컬 M3U] 파일이 없거나 폴더입니다: {path}")
-            
-    return file_list
+            if target_category and target_category != 'all' and category != target_category:
+                continue
+                
+            if path.startswith("http://") or path.startswith("https://"):
+                file_list.append({"category": category, "title": title, "quality": quality, "path": path})
+            elif os.path.isfile(path):
+                if path.lower().endswith(valid_exts):
+                    file_list.append({"category": category, "title": title, "quality": quality, "path": path.replace('\\', '/')})
+            else:
+                P.logger.error(f"[로컬 M3U 예외] 실제 경로에 파일이 존재하지 않아 무시됨: {path}")
+                
+        return file_list
+    except Exception as e:
+        P.logger.error(f"[디버그 logic] get_media_files 처리 도중 크래시 발생!")
+        P.logger.error(traceback.format_exc())
+        return []
 
 def get_media_list(req):
-    files = get_media_files('all')
-    result = []
-    for idx, item in enumerate(files, 1):
-        encoded_payload = f"{item['quality']}||{item['path']}"
-        encoded_name = _safe_b64encode(encoded_payload)
-        play_url = get_api_url(req, "play", {"file": encoded_name})
+    try:
+        P.logger.info("[디버그 logic] get_media_list 함수 진입")
+        files = get_media_files('all')
+        P.logger.info(f"[디버그 logic] get_media_files 수집 완료. 수량: {len(files)}")
         
-        display_name = f"[{item['category']}] {item['title']}"
-        result.append({
-            "idx": idx,
-            "name": display_name,
-            "url": play_url
-        })
-    return result
+        result = []
+        for idx, item in enumerate(files, 1):
+            encoded_payload = f"{item['quality']}||{item['path']}"
+            encoded_name = _safe_b64encode(encoded_payload)
+            play_url = get_api_url(req, "play", {"file": encoded_name})
+            
+            display_name = f"[{item['category']}] {item['title']}"
+            result.append({
+                "idx": idx,
+                "name": display_name,
+                "url": play_url
+            })
+        return result
+    except Exception as e:
+        P.logger.error(f"[디버그 logic] get_media_list에서 가공 도중 치명적 에러 발생!")
+        P.logger.error(traceback.format_exc())
+        raise e
 
 def make_m3u(req):
     try:
@@ -145,8 +162,6 @@ def play_ffmpeg_copy(encoded_name):
             P.logger.info("-> 외부 스트림 감지. yt-dlp로 라이브/VOD 원본 주소 추출 시도")
             try:
                 import yt_dlp
-                
-                # 🌟 숫자로 끝나는 화질 (1080p, 720p, 360p, 144p 등)을 동적으로 처리합니다.
                 format_str = 'best'
                 if quality.endswith('p') and quality[:-1].isdigit():
                     max_height = quality[:-1]
