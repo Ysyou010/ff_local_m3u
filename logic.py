@@ -140,103 +140,107 @@ def play_ffmpeg_copy(encoded_name):
             quality = "자동"
             full_path = full_str
             
-        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-        
-        if full_path.startswith("http://") or full_path.startswith("https://"):
-            P.logger.info(f"[재생 요청] YouTube: {full_path} (화질: {quality})")
-            try:
-                import yt_dlp
-                
-                # 🌟 [코덱 강제 고정] ExoPlayer가 무조건 인식할 수 있도록 H.264(avc1) 코덱만 골라오도록 필터 강화
-                format_str = 'bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/best[vcodec^=avc1]/best'
-                if quality.endswith('p') and quality[:-1].isdigit():
-                    max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<={max_height}][vcodec^=avc1]/best[height<={max_height}]'
-                    
-                ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
-                
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(full_path, download=False)
-                    is_live = info.get('is_live', False)
-                    req_formats = info.get('requested_formats')
-                    
-                    if req_formats and len(req_formats) == 2 and not is_live:
-                        P.logger.info(f"[재생 시작] 안드로이드 호환 고화질 VOD 복합 스트림 프록시 ({quality})")
-                        video_url = req_formats[0].get('url')
-                        audio_url = req_formats[1].get('url')
-                        
-                        headers = req_formats[0].get('http_headers', {})
-                        if headers and 'User-Agent' in headers:
-                            user_agent = headers['User-Agent']
-                            
-                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                        cmd.extend(["-user_agent", user_agent])
-                        cmd.extend([
-                            "-i", video_url,
-                            "-i", audio_url,
-                            "-map", "0:v:0", "-map", "1:a:0",
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-bsf:v", "h264_mp4toannexb",      # 🌟 [핵심] 안드로이드 블랙스크린 방지 비트스트림 필터 추가
-                            "-fflags", "+genpts",
-                            "-max_interleave_delta", "0",
-                            "-muxdelay", "0", "-f", "mpegts", "-"
-                        ])
-                    
-                    else:
-                        stream_url = info.get('url') or info.get('manifest_url')
-                        if not stream_url:
-                            return Response("스트림 주소 추출 실패", status=500)
-                            
-                        headers = info.get('http_headers', {})
-                        if headers and 'User-Agent' in headers:
-                            user_agent = headers['User-Agent']
-                            
-                        if not is_live:
-                            P.logger.info(f"[재생 시작] 저화질 VOD 리다이렉트")
-                            return redirect(stream_url, code=302)
-                        
-                        P.logger.info(f"[재생 시작] YouTube 라이브 안드로이드 규격 중계 가동")
-                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                        cmd.extend(["-user_agent", user_agent])
-                        cmd.extend([
-                            "-i", stream_url,
-                            "-map", "0:v:0?", "-map", "0:a:0?",
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-bsf:v", "h264_mp4toannexb",      # 🌟 라이브 방송 시에도 필터 적용
-                            "-fflags", "+genpts",
-                            "-max_interleave_delta", "0",
-                            "-muxdelay", "0", "-f", "mpegts", "-"
-                        ])
-                        
-            except Exception as e:
-                P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-                return Response(f"유튜브 에러: {e}", status=500)
-            
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-            
-            @stream_with_context
-            def generate():
-                try:
-                    while True:
-                        chunk = proc.stdout.read(188 * 32)
-                        if not chunk:
-                            break
-                        yield chunk
-                finally:
-                    if proc.poll() is None:
-                        proc.kill()
-                    P.logger.info("[재생 종료] YouTube 중계 종료")
-
-            return Response(generate(), mimetype="video/MP2T")
-
-        else:
+        # 🌟 1. 로컬 파일 처리 최우선 격리 (오류 원천 차단)
+        if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
-            
-            P.logger.info(f"[재생 시작] 로컬 파일: {full_path}")
+            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송: {full_path}")
             return send_file(full_path, conditional=True)
             
+        # 🌟 2. 유튜브 처리
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
+        
+        try:
+            import yt_dlp
+            
+            # [핵심] ExoPlayer 호환을 위해 철저하게 MP4(H.264)와 M4A(AAC)만 추출하도록 강제
+            if quality == "자동":
+                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            elif quality.endswith('p') and quality[:-1].isdigit():
+                max_height = quality[:-1]
+                format_str = f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best'
+            else:
+                format_str = 'best'
+                
+            ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(full_path, download=False)
+                is_live = info.get('is_live', False)
+                req_formats = info.get('requested_formats')
+                
+                # Case A: 비디오와 오디오가 분리된 고화질 VOD일 때 (FFmpeg 실시간 합류)
+                if req_formats and len(req_formats) == 2 and not is_live:
+                    P.logger.info(f"[재생 시작] 안드로이드용 VOD 분리 스트림 병합 전송")
+                    video_url = req_formats[0].get('url')
+                    audio_url = req_formats[1].get('url')
+                    
+                    headers = req_formats[0].get('http_headers', {})
+                    if headers and 'User-Agent' in headers:
+                        user_agent = headers['User-Agent']
+                        
+                    # 충돌을 유발하던 불안정한 bsf 필터를 완전히 제거하고 원본 그대로 복사(Muxing)
+                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                    cmd.extend(["-user_agent", user_agent])
+                    cmd.extend([
+                        "-i", video_url,
+                        "-i", audio_url,
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy", "-c:a", "copy",
+                        "-fflags", "+genpts",
+                        "-muxdelay", "0", "-f", "mpegts", "-"
+                    ])
+                
+                # Case B: 라이브 방송이거나 단일 스트림일 때
+                else:
+                    stream_url = info.get('url') or info.get('manifest_url')
+                    if not stream_url:
+                        return Response("스트림 주소 추출 실패", status=500)
+                        
+                    headers = info.get('http_headers', {})
+                    if headers and 'User-Agent' in headers:
+                        user_agent = headers['User-Agent']
+                        
+                    if not is_live:
+                        P.logger.info(f"[재생 시작] 단일 스트림 VOD 다이렉트 리다이렉트")
+                        return redirect(stream_url, code=302)
+                    
+                    P.logger.info(f"[재생 시작] YouTube 라이브 방송 중계 가동")
+                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                    cmd.extend(["-user_agent", user_agent])
+                    cmd.extend([
+                        "-i", stream_url,
+                        "-map", "0:v:0?", "-map", "0:a:0?",
+                        "-c:v", "copy", "-c:a", "copy",
+                        "-fflags", "+genpts",
+                        "-muxdelay", "0", "-f", "mpegts", "-"
+                    ])
+                    
+        except Exception as e:
+            P.logger.error(f"[재생 실패] 유튜브 추출 에러: {e}")
+            P.logger.error(traceback.format_exc())
+            return Response(f"유튜브 에러: {e}", status=500)
+        
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        
+        @stream_with_context
+        def generate():
+            try:
+                while True:
+                    chunk = proc.stdout.read(188 * 32)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                P.logger.info("[재생 종료] YouTube FFmpeg 프로세스 해제")
+
+        return Response(generate(), mimetype="video/MP2T")
+
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
+        P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
