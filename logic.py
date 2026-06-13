@@ -1,8 +1,6 @@
 import os
 import subprocess
 import traceback
-import mimetypes
-import re
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
 from flask import Response, stream_with_context, redirect, send_file, request
@@ -101,11 +99,7 @@ def get_media_list(req):
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
-            if not ext: ext = '.mp4'
-            
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = f"[{item['category']}] {item['title']}"
             result.append({
@@ -127,11 +121,7 @@ def make_m3u(req):
         for index, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mp4'
-            if not ext: ext = '.mp4'
-            
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = item['title']
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
@@ -149,93 +139,33 @@ def play_ffmpeg_copy(encoded_name):
         else:
             quality = "자동"
             full_path = full_str
-
+            
         # ==========================================
-        # 심층 네트워크 디버깅 로그 (플레이어 통신 상태 추적)
-        # ==========================================
-        P.logger.info("=" * 60)
-        P.logger.info(f"[상세 통신 추적] 대상 경로: {full_path}")
-        P.logger.info(f"▶ HTTP Method : {request.method}")
-        P.logger.info(f"▶ Range 헤더  : {request.headers.get('Range', '없음 (전체 요청)')}")
-        P.logger.info(f"▶ User-Agent  : {request.headers.get('User-Agent', '알 수 없음')}")
-        P.logger.info("=" * 60)
-
-        # ==========================================
-        # 1. 로컬 파일: ExoPlayer 무한루프 방지 수동 Range 처리
+        # 1. 로컬 파일: 에러 원천 차단 (가장 안전한 순정 다이렉트 전송)
         # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
-
-            file_size = os.path.getsize(full_path)
-            mime_type, _ = mimetypes.guess_type(full_path)
-            if not mime_type:
-                mime_type = 'video/mp4'
-
-            # 사전 탐색(HEAD) 요청 응답 처리
-            if request.method == 'HEAD':
-                response = Response(status=200)
-                response.headers['Content-Length'] = str(file_size)
-                response.headers['Accept-Ranges'] = 'bytes'
-                response.headers['Content-Type'] = mime_type
-                return response
-
-            # 구간 탐색(Range) 206 Partial Content 수동 구성 처리
-            range_header = request.headers.get('Range', None)
-            if range_header:
-                match = re.search(r'bytes=(\d+)-(\d*)', range_header)
-                if match:
-                    start = int(match.group(1))
-                    end = match.group(2)
-                    if end:
-                        end = int(end)
-                    else:
-                        end = file_size - 1
-
-                    length = end - start + 1
-                    P.logger.info(f"[로컬 파일] 206 부분 전송 시작 (Start: {start}, End: {end}, Length: {length})")
-
-                    def generate_partial():
-                        with open(full_path, 'rb') as f:
-                            f.seek(start)
-                            remaining = length
-                            while remaining > 0:
-                                chunk_size = min(1024 * 1024, remaining)
-                                data = f.read(chunk_size)
-                                if not data:
-                                    break
-                                remaining -= len(data)
-                                yield data
-
-                    response = Response(stream_with_context(generate_partial()), status=206, mimetype=mime_type)
-                    response.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
-                    response.headers.add('Accept-Ranges', 'bytes')
-                    response.headers.add('Content-Length', str(length))
-                    return response
-
-            # Range가 없는 최초 요청
-            P.logger.info(f"[재생 시작] 로컬 파일 전체 전송 (200 OK): {full_path}")
+            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송: {full_path}")
+            # ★ 플라스크 내장 기능으로 완벽하게 되돌림 (탐색, 끊김 모두 자동 해결)
             return send_file(full_path, conditional=True)
             
         # ==========================================
-        # 2. 유튜브 처리: 안정성 및 탐색(Seeking) 최우선
+        # 2. 유튜브: 파이썬 Range 자체 프록시 및 FFmpeg 분기
         # ==========================================
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
         
-        if request.method == 'HEAD':
-            return Response(status=200, mimetype="video/mp4")
-            
         try:
             import yt_dlp
+            import requests
             
-            if quality == "자동":
-                format_str = 'best[ext=mp4]/best'
-            elif quality.endswith('p') and quality[:-1].isdigit():
+            # VOD 탐색을 위해 하나의 단일 파일(합본) 중 최고 화질을 강제합니다. (최대 720p)
+            format_str = 'best[ext=mp4]/best'
+            if quality.endswith('p') and quality[:-1].isdigit():
                 max_height = quality[:-1]
                 format_str = f'best[height<={max_height}][ext=mp4]/best[ext=mp4]/best'
-            else:
-                format_str = 'best'
                 
             ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
             
@@ -247,10 +177,43 @@ def play_ffmpeg_copy(encoded_name):
                 if not stream_url:
                     return Response("스트림 주소 추출 실패", status=500)
                 
+                # 🌟 [VOD] 파이썬 Range 프록시 (ExoPlayer 차단 회피 및 앞뒤 탐색 완벽 지원)
                 if not is_live:
-                    P.logger.info(f"[재생 시작] YouTube VOD 다이렉트 연결 리다이렉트 실행")
-                    return redirect(stream_url, code=302)
+                    P.logger.info(f"[재생 시작] YouTube VOD 파이썬 Range 프록시 가동 (탐색 지원)")
+                    
+                    req_headers = {"User-Agent": user_agent}
+                    range_header = request.headers.get('Range')
+                    if range_header:
+                        req_headers['Range'] = range_header
+                    
+                    # 안드로이드 사전 탐색(HEAD) 무한루프 방지
+                    if request.method == 'HEAD':
+                        req_head = requests.head(stream_url, headers=req_headers, allow_redirects=True)
+                        resp = Response(status=req_head.status_code)
+                        for key in ['Content-Length', 'Accept-Ranges', 'Content-Type']:
+                            if key in req_head.headers:
+                                resp.headers[key] = req_head.headers[key]
+                        return resp
+                        
+                    # 본 영상 스트리밍
+                    req_stream = requests.get(stream_url, headers=req_headers, stream=True, allow_redirects=True)
+                    
+                    def generate():
+                        for chunk in req_stream.iter_content(chunk_size=1024*1024):
+                            if chunk:
+                                yield chunk
+                                
+                    response = Response(stream_with_context(generate()), status=req_stream.status_code)
+                    response.headers['Content-Type'] = req_stream.headers.get('Content-Type', 'video/mp4')
+                    
+                    # 안드로이드가 앞뒤 넘김을 할 수 있도록 헤더 복사 전달
+                    for key in ['Content-Range', 'Content-Length', 'Accept-Ranges']:
+                        if key in req_stream.headers:
+                            response.headers[key] = req_stream.headers[key]
+                            
+                    return response
                 
+                # 🌟 [LIVE] 라이브 방송 FFmpeg 실시간 중계 (기존 유지)
                 P.logger.info(f"[재생 시작] YouTube 라이브 방송 중계 가동")
                 headers = info.get('http_headers', {})
                 if headers and 'User-Agent' in headers:
@@ -267,12 +230,13 @@ def play_ffmpeg_copy(encoded_name):
                 
         except Exception as e:
             P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
+            P.logger.error(traceback.format_exc())
             return Response(f"유튜브 에러: {e}", status=500)
         
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
-        def generate():
+        def generate_live():
             try:
                 while True:
                     chunk = proc.stdout.read(188 * 32)
@@ -284,7 +248,7 @@ def play_ffmpeg_copy(encoded_name):
                     proc.kill()
                 P.logger.info("[재생 종료] YouTube 실시간 중계 종료")
 
-        return Response(generate(), mimetype="video/MP2T")
+        return Response(generate_live(), mimetype="video/MP2T")
 
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
