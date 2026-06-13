@@ -30,8 +30,14 @@
       <div class="form-group row">
         <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
         <div class="col-sm-9">
-          <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 300px; overflow-y: auto; border-radius: 4px;"></ul>
-          <small class="form-text mt-2 text-danger"><b>※ 추가/삭제 후에는 반드시 아래 [저장] 버튼을 눌러야 반영됩니다.</b></small>
+          <div class="d-flex justify-content-between align-items-end mb-2">
+            <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
+              <option value="전체">전체 카테고리</option>
+            </select>
+            <small class="text-danger"><b>※ 순서 변경 및 삭제 후 반드시 [저장]을 눌러주세요.</b></small>
+          </div>
+          
+          <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;"></ul>
         </div>
       </div>
 
@@ -49,8 +55,7 @@
     
     <div class="form-group row">
       <label class="col-sm-3 control-label text-sm-right">M3U API 주소</label>
-      <div class="col-sm-9" id="m3u_urls_display">
-        </div>
+      <div class="col-sm-9" id="m3u_urls_display"></div>
     </div>
     
   </div>
@@ -60,6 +65,7 @@
 <script type="text/javascript">
 var pathArray = [];
 var base_m3u_url = "{{ arg.get('api_m3u', '') }}"; 
+var currentFilter = "전체"; // 현재 선택된 필터 카테고리
 
 function getFileName(path) {
     if (path.startsWith("http://") || path.startsWith("https://")) return "YouTube Stream"; 
@@ -67,17 +73,50 @@ function getFileName(path) {
     return split[split.length - 1] || path;
 }
 
+// 리스트 렌더링 및 순서 조작 버튼 생성
 function renderList() {
-    var html = '';
+    var categories = new Set();
     var textLines = [];
-    var categories = new Set(); // 고유 카테고리 수집용
     
-    if (pathArray.length === 0) {
-        html = '<li class="list-group-item text-center text-muted">등록된 미디어가 없습니다.</li>';
+    // 데이터 취합 및 텍스트 데이터화
+    for (var i = 0; i < pathArray.length; i++) {
+        categories.add(pathArray[i].category);
+        textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].path);
+    }
+    
+    $('#media_path').val(textLines.join('\n'));
+    
+    // 필터 드롭다운 업데이트
+    var filterHtml = '<option value="전체">전체 카테고리 (' + pathArray.length + ')</option>';
+    Array.from(categories).forEach(function(cat) {
+        var count = pathArray.filter(function(item) { return item.category === cat; }).length;
+        var selected = (currentFilter === cat) ? ' selected' : '';
+        filterHtml += '<option value="' + cat + '"' + selected + '>[' + cat + '] (' + count + ')</option>';
+    });
+    
+    // 만약 현재 필터링 중이던 카테고리가 싹 다 지워졌다면 '전체'로 복귀
+    if (currentFilter !== '전체' && !categories.has(currentFilter)) {
+        currentFilter = '전체';
+    }
+    
+    $('#category_filter').html(filterHtml);
+    $('#category_filter').val(currentFilter);
+    
+    // 화면에 보여줄 요소 필터링 및 인덱스 매핑
+    var html = '';
+    var visibleIndices = [];
+    for (var i = 0; i < pathArray.length; i++) {
+        if (currentFilter === '전체' || pathArray[i].category === currentFilter) {
+            visibleIndices.push(i);
+        }
+    }
+    
+    if (visibleIndices.length === 0) {
+        html = '<li class="list-group-item text-center text-muted">해당 카테고리에 등록된 미디어가 없습니다.</li>';
     } else {
-        for (var i = 0; i < pathArray.length; i++) {
-            var item = pathArray[i];
-            categories.add(item.category);
+        for (var v = 0; v < visibleIndices.length; v++) {
+            var absIdx = visibleIndices[v];
+            var item = pathArray[absIdx];
             
             html += '<li class="list-group-item d-flex justify-content-between align-items-center py-2 pr-2">';
             html += '<div style="word-break: break-all; font-size: 14px; line-height: 1.2;">';
@@ -85,33 +124,38 @@ function renderList() {
             html += '  <strong class="text-primary">' + item.title + '</strong><br>';
             html += '  <small class="text-muted">' + item.path + '</small>';
             html += '</div>';
-            html += '<button class="btn btn-sm btn-outline-danger delete_path_btn" data-index="' + i + '" style="min-width: 60px;"><i class="fa fa-trash"></i> 삭제</button>';
-            html += '</li>';
             
-            textLines.push(item.category + '|' + item.title + '|' + item.path);
+            // 버튼 그룹 (위/아래/삭제)
+            html += '<div class="btn-group btn-group-sm" role="group">';
+            
+            var upDisabled = (v === 0) ? 'disabled' : '';
+            var targetUpIdx = (v > 0) ? visibleIndices[v - 1] : -1;
+            html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetUpIdx + '" ' + upDisabled + ' title="위로 이동"><i class="fa fa-arrow-up"></i></button>';
+            
+            var downDisabled = (v === visibleIndices.length - 1) ? 'disabled' : '';
+            var targetDownIdx = (v < visibleIndices.length - 1) ? visibleIndices[v + 1] : -1;
+            html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetDownIdx + '" ' + downDisabled + ' title="아래로 이동"><i class="fa fa-arrow-down"></i></button>';
+            
+            html += '<button class="btn btn-outline-danger delete_path_btn" data-idx="' + absIdx + '" title="삭제"><i class="fa fa-trash"></i></button>';
+            html += '</div>';
+            html += '</li>';
         }
     }
     $('#path_list_display').html(html);
-    $('#media_path').val(textLines.join('\n'));
-    
-    // M3U 주소 화면 업데이트
     renderM3uUrls(Array.from(categories));
 }
 
-// 카테고리별 주소를 화면에 버튼과 함께 그려주는 함수
 function renderM3uUrls(categories) {
     var html = '';
     if (categories.length === 0) {
         html = '<div class="text-muted mt-2">저장된 재생목록이 없습니다.</div>';
     } else {
-        // 전체 목록 주소
         html += '<div class="input-group mb-2">';
         html += '  <div class="input-group-prepend"><span class="input-group-text" style="width: 100px;">[전체 목록]</span></div>';
         html += '  <input type="text" class="form-control" value="' + base_m3u_url + '" readonly>';
         html += '  <div class="input-group-append"><button class="btn btn-secondary btn_copy_url" data-clipboard-text="' + base_m3u_url + '">복사</button></div>';
         html += '</div>';
         
-        // 개별 카테고리 주소
         for (var i = 0; i < categories.length; i++) {
             var catUrl = base_m3u_url + (base_m3u_url.indexOf('?') !== -1 ? '&' : '?') + 'id=' + encodeURIComponent(categories[i]);
             html += '<div class="input-group mb-1">';
@@ -120,7 +164,6 @@ function renderM3uUrls(categories) {
             html += '  <div class="input-group-append"><button class="btn btn-secondary btn_copy_url" data-clipboard-text="' + catUrl + '">복사</button></div>';
             html += '</div>';
         }
-        html += '<small class="form-text text-muted">위 주소를 복사하여 플레이어에 각각 별도의 채널 목록으로 등록하세요.</small>';
     }
     $('#m3u_urls_display').html(html);
 }
@@ -131,7 +174,7 @@ function addPath(newCategory, newTitle, newPath) {
     newCategory = newCategory.trim();
     
     if (newPath === '') { notify('경로나 URL을 입력하세요.', 'warning'); return; }
-    if (newCategory === '') { newCategory = '기본'; } // 카테고리 비우면 '기본'
+    if (newCategory === '') { newCategory = '기본'; }
     if (newTitle === '') { newTitle = getFileName(newPath); }
     
     for (var i = 0; i < pathArray.length; i++) {
@@ -146,6 +189,7 @@ function addPath(newCategory, newTitle, newPath) {
     $('#new_path_input').focus(); 
 }
 
+// 이벤트 바인딩
 $(document).ready(function(){
     var initialText = $('#media_path').val().trim();
     if (initialText !== '') {
@@ -157,15 +201,18 @@ $(document).ready(function(){
                 if (parts.length >= 3) {
                     pathArray.push({category: parts[0].trim(), title: parts[1].trim(), path: parts.slice(2).join('|').trim()});
                 } else if (parts.length === 2) {
-                    // 과거 데이터 호환 (제목|경로)
                     pathArray.push({category: '기본', title: parts[0].trim(), path: parts[1].trim()});
                 } else {
-                    // 과거 데이터 호환 (경로만)
                     pathArray.push({category: '기본', title: getFileName(line), path: line});
                 }
             }
         }
     }
+    renderList();
+});
+
+$("body").on('change', '#category_filter', function() {
+    currentFilter = $(this).val();
     renderList();
 });
 
@@ -181,9 +228,23 @@ $('#new_path_input').keypress(function(e){
     }
 });
 
+// 순서 이동 버튼 로직 (위로/아래로)
+$("body").on('click', '.move_btn', function(e){
+    e.preventDefault();
+    var idx1 = parseInt($(this).data('idx'));
+    var idx2 = parseInt($(this).data('target'));
+    
+    if (idx1 >= 0 && idx2 >= 0) {
+        var temp = pathArray[idx1];
+        pathArray[idx1] = pathArray[idx2];
+        pathArray[idx2] = temp;
+        renderList();
+    }
+});
+
 $("body").on('click', '.delete_path_btn', function(e){
     e.preventDefault();
-    pathArray.splice($(this).data('index'), 1);
+    pathArray.splice($(this).data('idx'), 1);
     renderList();
 });
 
