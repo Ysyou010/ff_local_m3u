@@ -13,25 +13,25 @@
         <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
         <div class="col-sm-9">
           <div class="d-flex mb-2">
-            <input type="text" id="new_title_input" class="form-control mr-2" placeholder="채널/제목 (비우면 자동)" style="width: 30%;">
-            <div class="input-group" style="width: 70%;">
-              <input type="text" id="new_path_input" class="form-control" placeholder="로컬 절대 경로 또는 유튜브 URL">
+            <input type="text" id="new_category_input" class="form-control mr-2" placeholder="재생목록 이름 (예: 영화)" style="width: 20%;">
+            <input type="text" id="new_title_input" class="form-control mr-2" placeholder="채널/제목" style="width: 25%;">
+            <div class="input-group" style="width: 55%;">
+              <input type="text" id="new_path_input" class="form-control" placeholder="절대 경로 또는 URL">
               <div class="input-group-append">
                 <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i> 추가</button>
                 <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i> 탐색기</button>
               </div>
             </div>
           </div>
-          <small class="form-text text-muted">제목을 비워두면 파일명(유튜브는 임시 이름)이 자동으로 들어갑니다.</small>
+          <small class="form-text text-muted">재생목록 이름을 지정하면 해당 이름별로 독립된 M3U 주소가 생성됩니다.</small>
         </div>
       </div>
 
       <div class="form-group row">
         <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
         <div class="col-sm-9">
-          <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;">
-            </ul>
-          <small class="form-text mt-2 text-danger"><b>※ 리스트를 변경한 후에는 반드시 아래 [저장] 버튼을 눌러야 반영됩니다.</b></small>
+          <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 300px; overflow-y: auto; border-radius: 4px;"></ul>
+          <small class="form-text mt-2 text-danger"><b>※ 추가/삭제 후에는 반드시 아래 [저장] 버튼을 눌러야 반영됩니다.</b></small>
         </div>
       </div>
 
@@ -39,7 +39,7 @@
         <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
       </div>
       
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (유튜브 주소는 무관)']) }}
+      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요.']) }}
       
       <div class="mt-3">
         {{ macros.m_button_group([['globalSettingSaveBtn', '저장']]) }}
@@ -47,19 +47,22 @@
     </form>
     {{ macros.m_hr() }}
     
-    {{ macros.setting_input_text_and_buttons('api_m3u', 'M3U API 주소', [['globalCliboardBtn', '복사'], ['globalOpenBtn', '새창']], value=arg.get('api_m3u', ''), desc=['외부 플레이어(IPTV 앱 등)에 등록할 M3U 주소입니다.']) }}
+    <div class="form-group row">
+      <label class="col-sm-3 control-label text-sm-right">M3U API 주소</label>
+      <div class="col-sm-9" id="m3u_urls_display">
+        </div>
+    </div>
+    
   </div>
   {{ macros.m_tab_content_end() }}
 </div>
 
 <script type="text/javascript">
-// 배열엔 객체 {title: '제목', path: '경로'} 형태로 담습니다.
 var pathArray = [];
+var base_m3u_url = "{{ arg.get('api_m3u', '') }}"; 
 
 function getFileName(path) {
-    if (path.startsWith("http://") || path.startsWith("https://")) {
-        return "YouTube Stream"; 
-    }
+    if (path.startsWith("http://") || path.startsWith("https://")) return "YouTube Stream"; 
     var split = path.split(/[\/\\]/);
     return split[split.length - 1] || path;
 }
@@ -67,57 +70,80 @@ function getFileName(path) {
 function renderList() {
     var html = '';
     var textLines = [];
+    var categories = new Set(); // 고유 카테고리 수집용
     
     if (pathArray.length === 0) {
         html = '<li class="list-group-item text-center text-muted">등록된 미디어가 없습니다.</li>';
     } else {
         for (var i = 0; i < pathArray.length; i++) {
             var item = pathArray[i];
+            categories.add(item.category);
             
             html += '<li class="list-group-item d-flex justify-content-between align-items-center py-2 pr-2">';
             html += '<div style="word-break: break-all; font-size: 14px; line-height: 1.2;">';
+            html += '  <span class="badge badge-info mr-2">' + item.category + '</span>';
             html += '  <strong class="text-primary">' + item.title + '</strong><br>';
             html += '  <small class="text-muted">' + item.path + '</small>';
             html += '</div>';
             html += '<button class="btn btn-sm btn-outline-danger delete_path_btn" data-index="' + i + '" style="min-width: 60px;"><i class="fa fa-trash"></i> 삭제</button>';
             html += '</li>';
             
-            // 파이썬으로 보낼 때는 "제목|경로" 형태로 묶어줍니다.
-            textLines.push(item.title + '|' + item.path);
+            textLines.push(item.category + '|' + item.title + '|' + item.path);
         }
     }
     $('#path_list_display').html(html);
     $('#media_path').val(textLines.join('\n'));
+    
+    // M3U 주소 화면 업데이트
+    renderM3uUrls(Array.from(categories));
 }
 
-function addPath(newPath, newTitle) {
+// 카테고리별 주소를 화면에 버튼과 함께 그려주는 함수
+function renderM3uUrls(categories) {
+    var html = '';
+    if (categories.length === 0) {
+        html = '<div class="text-muted mt-2">저장된 재생목록이 없습니다.</div>';
+    } else {
+        // 전체 목록 주소
+        html += '<div class="input-group mb-2">';
+        html += '  <div class="input-group-prepend"><span class="input-group-text" style="width: 100px;">[전체 목록]</span></div>';
+        html += '  <input type="text" class="form-control" value="' + base_m3u_url + '" readonly>';
+        html += '  <div class="input-group-append"><button class="btn btn-secondary btn_copy_url" data-clipboard-text="' + base_m3u_url + '">복사</button></div>';
+        html += '</div>';
+        
+        // 개별 카테고리 주소
+        for (var i = 0; i < categories.length; i++) {
+            var catUrl = base_m3u_url + (base_m3u_url.indexOf('?') !== -1 ? '&' : '?') + 'id=' + encodeURIComponent(categories[i]);
+            html += '<div class="input-group mb-1">';
+            html += '  <div class="input-group-prepend"><span class="input-group-text" style="width: 100px;">[' + categories[i] + ']</span></div>';
+            html += '  <input type="text" class="form-control" value="' + catUrl + '" readonly>';
+            html += '  <div class="input-group-append"><button class="btn btn-secondary btn_copy_url" data-clipboard-text="' + catUrl + '">복사</button></div>';
+            html += '</div>';
+        }
+        html += '<small class="form-text text-muted">위 주소를 복사하여 플레이어에 각각 별도의 채널 목록으로 등록하세요.</small>';
+    }
+    $('#m3u_urls_display').html(html);
+}
+
+function addPath(newCategory, newTitle, newPath) {
     newPath = newPath.trim();
     newTitle = newTitle.trim();
+    newCategory = newCategory.trim();
     
-    if (newPath === '') {
-        notify('경로나 URL을 입력하세요.', 'warning');
-        return;
-    }
-    // 제목이 비어있으면 파일명 또는 기본 이름으로 채움
-    if (newTitle === '') {
-        newTitle = getFileName(newPath);
-    }
+    if (newPath === '') { notify('경로나 URL을 입력하세요.', 'warning'); return; }
+    if (newCategory === '') { newCategory = '기본'; } // 카테고리 비우면 '기본'
+    if (newTitle === '') { newTitle = getFileName(newPath); }
     
-    // 중복 경로 체크
     for (var i = 0; i < pathArray.length; i++) {
-        if (pathArray[i].path === newPath) {
-            notify('이미 등록된 경로입니다.', 'warning');
-            return;
-        }
+        if (pathArray[i].path === newPath) { notify('이미 등록된 경로입니다.', 'warning'); return; }
     }
     
-    pathArray.push({title: newTitle, path: newPath});
+    pathArray.push({category: newCategory, title: newTitle, path: newPath});
     renderList();
     
     $('#new_path_input').val('');
     $('#new_title_input').val('');
-    $('#new_title_input').focus(); 
-    notify('리스트에 추가되었습니다.', 'success');
+    $('#new_path_input').focus(); 
 }
 
 $(document).ready(function(){
@@ -127,14 +153,15 @@ $(document).ready(function(){
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i].trim();
             if (line !== '') {
-                // 기존 데이터(경로만 있는 경우)와 새 데이터(제목|경로)를 완벽히 호환
-                if (line.indexOf('|') !== -1) {
-                    var parts = line.split('|');
-                    var t = parts[0].trim();
-                    var p = parts.slice(1).join('|').trim();
-                    pathArray.push({title: t, path: p});
+                var parts = line.split('|');
+                if (parts.length >= 3) {
+                    pathArray.push({category: parts[0].trim(), title: parts[1].trim(), path: parts.slice(2).join('|').trim()});
+                } else if (parts.length === 2) {
+                    // 과거 데이터 호환 (제목|경로)
+                    pathArray.push({category: '기본', title: parts[0].trim(), path: parts[1].trim()});
                 } else {
-                    pathArray.push({title: getFileName(line), path: line});
+                    // 과거 데이터 호환 (경로만)
+                    pathArray.push({category: '기본', title: getFileName(line), path: line});
                 }
             }
         }
@@ -144,34 +171,41 @@ $(document).ready(function(){
 
 $("body").on('click', '#add_path_btn', function(e){
     e.preventDefault();
-    addPath($('#new_path_input').val(), $('#new_title_input').val());
+    addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_path_input').val());
 });
 
 $('#new_path_input').keypress(function(e){
     if(e.which == 13) {
         e.preventDefault();
-        addPath($('#new_path_input').val(), $('#new_title_input').val());
+        addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_path_input').val());
     }
 });
 
 $("body").on('click', '.delete_path_btn', function(e){
     e.preventDefault();
-    var idx = $(this).data('index');
-    pathArray.splice(idx, 1);
+    pathArray.splice($(this).data('index'), 1);
     renderList();
 });
 
 $("body").on('click', '#open_explorer_btn', function(e){
     e.preventDefault();
     var start_path = '/';
-    if (pathArray.length > 0) {
-        start_path = pathArray[pathArray.length - 1].path;
-    }
+    if (pathArray.length > 0) start_path = pathArray[pathArray.length - 1].path;
     globalSelectLocalFile("미디어 파일 선택", start_path, function(result){
-        if (result) {
-            addPath(result, $('#new_title_input').val());
-        }
+        if (result) addPath($('#new_category_input').val(), $('#new_title_input').val(), result);
     });
+});
+
+$("body").on('click', '.btn_copy_url', function(e){
+    e.preventDefault();
+    var text = $(this).data('clipboard-text');
+    var t = document.createElement("textarea");
+    document.body.appendChild(t);
+    t.value = text;
+    t.select();
+    document.execCommand('copy');
+    document.body.removeChild(t);
+    notify('M3U 주소가 복사되었습니다.', 'success');
 });
 </script>
 {% endblock %}
