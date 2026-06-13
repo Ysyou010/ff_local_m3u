@@ -1,6 +1,7 @@
 import os
 import subprocess
 import traceback
+import mimetypes
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
 from flask import Response, stream_with_context, redirect, send_file, request
@@ -39,6 +40,21 @@ def _safe_b64encode(text):
 def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
+
+# 🌟 안드로이드 플레이어(ExoPlayer) 생존 필수: 확장자에 따른 명확한 MimeType 강제 지정 함수
+def get_mime_type(file_path):
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        ext = os.path.splitext(file_path)[1].lower()
+        mime_map = {
+            '.mp4': 'video/mp4',
+            '.mkv': 'video/x-matroska',
+            '.ts': 'video/MP2T',
+            '.avi': 'video/x-msvideo',
+            '.m3u8': 'application/vnd.apple.mpegurl'
+        }
+        mime_type = mime_map.get(ext, 'video/mp4')
+    return mime_type
 
 def get_media_files(target_category=None):
     try:
@@ -141,18 +157,19 @@ def play_ffmpeg_copy(encoded_name):
             full_path = full_str
             
         # ==========================================
-        # 1. 로컬 파일: 에러 원천 차단 (가장 안전한 순정 다이렉트 전송)
+        # 1. 로컬 파일: MimeType 명시 다이렉트 전송
         # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
-            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송: {full_path}")
-            # ★ 플라스크 내장 기능으로 완벽하게 되돌림 (탐색, 끊김 모두 자동 해결)
-            return send_file(full_path, conditional=True)
+            
+            mime_type = get_mime_type(full_path)
+            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송 (MIME 강제: {mime_type}): {full_path}")
+            return send_file(full_path, mimetype=mime_type, conditional=True)
             
         # ==========================================
-        # 2. 유튜브: 파이썬 Range 자체 프록시 및 FFmpeg 분기
+        # 2. 유튜브 처리
         # ==========================================
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
@@ -161,11 +178,13 @@ def play_ffmpeg_copy(encoded_name):
             import yt_dlp
             import requests
             
-            # VOD 탐색을 위해 하나의 단일 파일(합본) 중 최고 화질을 강제합니다. (최대 720p)
-            format_str = 'best[ext=mp4]/best'
-            if quality.endswith('p') and quality[:-1].isdigit():
+            if quality == "자동":
+                format_str = 'best[ext=mp4]/best'
+            elif quality.endswith('p') and quality[:-1].isdigit():
                 max_height = quality[:-1]
                 format_str = f'best[height<={max_height}][ext=mp4]/best[ext=mp4]/best'
+            else:
+                format_str = 'best'
                 
             ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
             
@@ -177,43 +196,50 @@ def play_ffmpeg_copy(encoded_name):
                 if not stream_url:
                     return Response("스트림 주소 추출 실패", status=500)
                 
-                # 🌟 [VOD] 파이썬 Range 프록시 (ExoPlayer 차단 회피 및 앞뒤 탐색 완벽 지원)
+                # 🌟 일반 영상(VOD): 완벽한 파이썬 Range 프록시 가동
                 if not is_live:
-                    P.logger.info(f"[재생 시작] YouTube VOD 파이썬 Range 프록시 가동 (탐색 지원)")
+                    P.logger.info(f"[재생 시작] YouTube VOD 파이썬 완벽 프록시 가동 (차단 우회/탐색 지원)")
                     
                     req_headers = {"User-Agent": user_agent}
                     range_header = request.headers.get('Range')
                     if range_header:
                         req_headers['Range'] = range_header
                     
-                    # 안드로이드 사전 탐색(HEAD) 무한루프 방지
+                    # 안드로이드의 사전 찌르기(HEAD) 요청 고속 응답 처리
                     if request.method == 'HEAD':
-                        req_head = requests.head(stream_url, headers=req_headers, allow_redirects=True)
-                        resp = Response(status=req_head.status_code)
+                        yt_head = requests.head(stream_url, headers=req_headers, allow_redirects=True)
+                        resp = Response(status=yt_head.status_code)
                         for key in ['Content-Length', 'Accept-Ranges', 'Content-Type']:
-                            if key in req_head.headers:
-                                resp.headers[key] = req_head.headers[key]
+                            if key in yt_head.headers:
+                                resp.headers[key] = yt_head.headers[key]
+                        if 'Content-Type' not in resp.headers:
+                            resp.headers['Content-Type'] = 'video/mp4'
                         return resp
                         
-                    # 본 영상 스트리밍
-                    req_stream = requests.get(stream_url, headers=req_headers, stream=True, allow_redirects=True)
+                    yt_req = requests.get(stream_url, headers=req_headers, stream=True, allow_redirects=True)
                     
                     def generate():
-                        for chunk in req_stream.iter_content(chunk_size=1024*1024):
-                            if chunk:
-                                yield chunk
-                                
-                    response = Response(stream_with_context(generate()), status=req_stream.status_code)
-                    response.headers['Content-Type'] = req_stream.headers.get('Content-Type', 'video/mp4')
-                    
-                    # 안드로이드가 앞뒤 넘김을 할 수 있도록 헤더 복사 전달
-                    for key in ['Content-Range', 'Content-Length', 'Accept-Ranges']:
-                        if key in req_stream.headers:
-                            response.headers[key] = req_stream.headers[key]
+                        try:
+                            for chunk in yt_req.iter_content(chunk_size=1024*1024):
+                                if chunk:
+                                    yield chunk
+                        except Exception as e:
+                            pass
                             
+                    # 🌟 핵심: direct_passthrough=True를 통해 Framework의 Chunked 강제 개입을 차단합니다.
+                    response = Response(stream_with_context(generate()), status=yt_req.status_code, direct_passthrough=True)
+                    
+                    # 길이 정보(Content-Length)를 빼앗기지 않고 안드로이드에게 고스란히 전달합니다.
+                    for key in ['Content-Range', 'Content-Length', 'Accept-Ranges', 'Content-Type']:
+                        if key in yt_req.headers:
+                            response.headers[key] = yt_req.headers[key]
+                    
+                    if 'Content-Type' not in response.headers:
+                        response.headers['Content-Type'] = 'video/mp4'
+                        
                     return response
                 
-                # 🌟 [LIVE] 라이브 방송 FFmpeg 실시간 중계 (기존 유지)
+                # 🌟 라이브 방송(Live): 실시간 중계를 위해 기존처럼 FFmpeg 프록시 사용
                 P.logger.info(f"[재생 시작] YouTube 라이브 방송 중계 가동")
                 headers = info.get('http_headers', {})
                 if headers and 'User-Agent' in headers:
@@ -230,7 +256,6 @@ def play_ffmpeg_copy(encoded_name):
                 
         except Exception as e:
             P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-            P.logger.error(traceback.format_exc())
             return Response(f"유튜브 에러: {e}", status=500)
         
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
