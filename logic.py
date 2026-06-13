@@ -3,7 +3,7 @@ import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
-from flask import Response, stream_with_context, redirect
+from flask import Response, stream_with_context, redirect, send_file
 from framework import SystemModelSetting
 from .setup import P
 
@@ -124,6 +124,7 @@ def play_ffmpeg_copy(encoded_name):
         
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
+        # 1. 유튜브 등 외부 스트림 처리
         if full_path.startswith("http://") or full_path.startswith("https://"):
             P.logger.info("-> 외부 스트림 감지. yt-dlp로 라이브/VOD 원본 주소 추출 시도")
             try:
@@ -146,43 +147,45 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(f"-> [실패] 유튜브 추출 중 에러: {e}")
                 P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
+            
+            # 외부 스트림은 구간 탐색 없이 FFmpeg로 실시간 중계 (기존과 동일)
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+            cmd.extend(["-user_agent", user_agent])
+            cmd.extend([
+                "-i", full_path,
+                "-map", "0:v:0?", "-map", "0:a:0?",
+                "-c:v", "copy", "-c:a", "copy",
+                "-muxdelay", "0", "-f", "mpegts", "-"
+            ])
+            
+            P.logger.info(f"FFmpeg 명령어 실행 준비 완료")
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+            
+            @stream_with_context
+            def generate():
+                try:
+                    while True:
+                        chunk = proc.stdout.read(188 * 32)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                    P.logger.info(f"FFmpeg 전송 종료 (사용자 접속 해제)")
+
+            return Response(generate(), mimetype="video/MP2T")
+
+        # 2. 로컬 파일 처리 (★ 구간 탐색 완벽 지원 ★)
         else:
             if not os.path.isfile(full_path):
                 P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
                 return Response(f"File not found: {full_path}", status=404)
-
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-        
-        if not full_path.startswith("http"):
-            cmd.append("-re")
-        else:
-            cmd.extend(["-user_agent", user_agent])
             
-        cmd.extend([
-            "-i", full_path,
-            "-map", "0:v:0?", "-map", "0:a:0?",
-            "-c:v", "copy", "-c:a", "copy",
-            "-muxdelay", "0", "-f", "mpegts", "-"
-        ])
-        
-        P.logger.info(f"FFmpeg 명령어 실행 준비 완료")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-        
-        @stream_with_context
-        def generate():
-            try:
-                while True:
-                    chunk = proc.stdout.read(188 * 32)
-                    if not chunk:
-                        break
-                    yield chunk
-            finally:
-                if proc.poll() is None:
-                    proc.kill()
-                P.logger.info(f"FFmpeg 전송 종료 (사용자 접속 해제)")
-
-        return Response(generate(), mimetype="video/MP2T")
-        
+            P.logger.info(f"-> [로컬 파일] 다이렉트 전송 시작 (구간 탐색/HTTP Range 지원)")
+            # conditional=True 속성이 안드로이드/팟플레이어의 앞뒤 이동(Seek) 요청을 완벽하게 처리해 줍니다.
+            return send_file(full_path, conditional=True)
+            
     except Exception as e:
         P.logger.error(f"재생 처리 에러: {str(e)}")
         P.logger.error(traceback.format_exc())
