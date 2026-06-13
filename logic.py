@@ -40,7 +40,9 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
-def get_media_files():
+# --- logic.py 기존 코드 유지 부분 생략 ---
+
+def get_media_files(target_category=None):
     media_path_raw = P.ModelSetting.get("media_path")
     if not media_path_raw:
         return []
@@ -52,53 +54,60 @@ def get_media_files():
     paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
     
     for line in paths:
-        if '|' in line:
-            parts = line.split('|', 1)
+        # 데이터 분리 (카테고리|제목|경로)
+        parts = line.split('|')
+        if len(parts) >= 3:
+            category = parts[0].strip()
+            title = parts[1].strip()
+            path = parts.slice(2).join('|').strip() if hasattr(parts, 'slice') else '|'.join(parts[2:]).strip()
+        elif len(parts) == 2:
+            category = "기본"
             title = parts[0].strip()
             path = parts[1].strip()
         else:
-            path = line.strip()
+            category = "기본"
             title = ""
-        
+            path = line.strip()
+            
         if not title:
-            if path.startswith("http"):
-                title = "YouTube Stream"
-            else:
-                title = os.path.basename(path)
-                
+            title = "YouTube Stream" if path.startswith("http") else os.path.basename(path)
+
+        # ★ 요청한 카테고리가 있고, 'all'이 아니며, 현재 줄의 카테고리와 다르면 건너뜀!
+        if target_category and target_category != 'all' and category != target_category:
+            continue
+            
         if path.startswith("http://") or path.startswith("https://"):
-            file_list.append({"title": title, "path": path})
+            file_list.append({"category": category, "title": title, "path": path})
         elif os.path.isfile(path):
             if path.lower().endswith(valid_exts):
-                file_list.append({"title": title, "path": path.replace('\\', '/')})
+                file_list.append({"category": category, "title": title, "path": path.replace('\\', '/')})
         else:
             P.logger.error(f"[로컬 M3U] 파일이 없거나 폴더입니다: {path}")
             
     return file_list
 
 def get_media_list(req):
-    files = get_media_files()
+    files = get_media_files('all') # 플러그인 자체 목록 화면에서는 무조건 전체 표시
     result = []
-    
     for idx, item in enumerate(files, 1):
         encoded_name = _safe_b64encode(item['path'])
         play_url = get_api_url(req, "play", {"file": encoded_name})
         
-        display_name = item['title']
-        if display_name == "YouTube Stream":
-            display_name = f"YouTube Stream [{idx}]"
-        
+        display_name = f"[{item['category']}] {item['title']}"
         result.append({
             "idx": idx,
             "name": display_name,
             "url": play_url
         })
-        
     return result
 
 def make_m3u(req):
     try:
-        files = get_media_files()
+        # URL에서 요청한 재생목록 ID(카테고리명)를 가져옴. 파라미터가 없으면 'all' (전체)
+        target_category = req.args.get('id', 'all')
+        
+        # 해당 카테고리만 필터링해서 가져오기
+        files = get_media_files(target_category)
         lines = ["#EXTM3U\n"]
         
         for index, item in enumerate(files, 1):
@@ -106,8 +115,6 @@ def make_m3u(req):
             play_url = get_api_url(req, "play", {"file": encoded_name})
             
             display_name = item['title']
-            if display_name == "YouTube Stream":
-                display_name = f"YouTube Stream [{index}]"
             
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
             
@@ -115,6 +122,8 @@ def make_m3u(req):
     except Exception as e:
         P.logger.error(traceback.format_exc())
         return Response(f"make_m3u 생성 중 에러: {str(e)}", status=500)
+
+# --- 이하 play_ffmpeg_copy 함수는 기존 코드 유지 ---
 
 def play_ffmpeg_copy(encoded_name):
     try:
