@@ -40,15 +40,10 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
-# logic.py의 get_media_files 함수를 수정
-def get_media_files(req):
-    # 주소에서 list_id를 가져옵니다. (예: /api/m3u?list_id=movie)
-    list_id = req.args.get('list_id', 'default')
-    # ID별로 설정값을 따로 불러오도록 구조화
-    media_path_raw = P.ModelSetting.get(f"media_path_{list_id}") 
+def get_media_files():
+    media_path_raw = P.ModelSetting.get("media_path")
     if not media_path_raw:
         return []
-    # ... (나머지 로직은 동일)
         
     ext_setting = P.ModelSetting.get("extensions")
     valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
