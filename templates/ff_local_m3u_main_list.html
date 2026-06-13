@@ -24,12 +24,18 @@
 </div>
 
 <script type="text/javascript">
+var package_name = 'ff_local_m3u';
+var sub = 'main';
+
 $(document).ready(function(){
-    // 변수 참조 에러를 막기 위해 플러그인 주소를 완벽하게 하드코딩했습니다.
+    // 주소와 명령어를 프레임워크 순정 규격에 맞게 완벽히 분리했습니다.
     $.ajax({
-        url: '/ff_local_m3u/ajax/main/get_list',
+        url: '/' + package_name + '/ajax/' + sub,
         type: "POST",
         cache: false,
+        data: {
+            command: 'get_list' // 명령어를 보따리(data)에 담아 보냅니다.
+        },
         success: function (data) {
             if (data.ret == 'success' && data.list.length > 0) {
                 make_list(data.list);
