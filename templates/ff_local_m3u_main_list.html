@@ -30,41 +30,19 @@ var categories = [];
 var current_category = "전체";
 
 $(document).ready(function(){
-    console.log("[디버그] 재생 목록 AJAX 요청 시작");
-    $.ajax({
-        url: '/' + PACKAGE_NAME + '/ajax/get_list',
-        type: "POST", 
-        cache: false,
-        data: {},
-        dataType: "json",
-        success: function (data) {
-            console.log("[디버그] 서버 응답 수신 성공:", data);
-            if (data.ret == "success") {
-                current_data = data.list;
-                extractCategories();
-                renderTabs();
-                make_list();
-            } else {
-                notify('목록 처리 실패: ' + data.msg, 'warning');
-                $('#list_div').html('<div class="alert alert-warning"><b>서버 응답 실패:</b><pre>' + data.msg + '</pre></div>');
-            }
-        },
-        // 🌟 무한 로딩의 원인을 화면에 강제로 띄워주는 에러 추적 블록 추가
-        error: function (xhr, status, error) {
-            console.error("[디버그] AJAX 통신 자체 실패!!", status, error);
-            console.error("[디버그] 서버가 뱉은 응답 본문:", xhr.responseText);
-            
-            var errorHtml = '<div class="alert alert-danger">';
-            errorHtml += '  <h4><i class="fa fa-exclamation-triangle"></i> 통신 실패 (무한로딩 원인 발견)</h4>';
-            errorHtml += '  <p><b>HTTP 상태 코드:</b> ' + xhr.status + ' (' + error + ')</p>';
-            errorHtml += '  <p><b>프레임워크 라우팅 상태:</b> ' + status + '</p>';
-            errorHtml += '  <hr>';
-            errorHtml += '  <p><b>서버가 반환한 에러 본문 내용:</b></p>';
-            errorHtml += '  <pre style="background:#f8d7da; padding:10px;">' + (xhr.responseText ? xhr.responseText : '응답 본문이 비어있습니다.') + '</pre>';
-            errorHtml += '</div>';
-            
-            $('#list_div').html(errorHtml);
-            notify('서버 통신 에러 발생!', 'danger');
+    console.log("[디버그] 재생 목록 프레임워크 전용 채널 요청 시작");
+    
+    // 🌟 위험한 $.ajax 통신을 지우고 순정 프레임워크 연동 함수로 완벽 변환하여 500 에러를 원천 차단합니다.
+    globalSendCommand('get_list', null, null, null, function(data) {
+        console.log("[디버그] 순정 통신 응답 성공:", data);
+        if (data.ret == "success") {
+            current_data = data.list;
+            extractCategories(); 
+            renderTabs();        
+            make_list();         
+        } else {
+            notify('목록 가공 실패: ' + data.msg, 'warning');
+            $('#list_div').html('<div class="alert alert-warning">서버 내부 가공 실패:<pre>' + data.msg + '</pre></div>');
         }
     });
 });
