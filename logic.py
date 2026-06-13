@@ -44,7 +44,6 @@ def get_media_files(target_category=None):
     try:
         media_path_raw = P.ModelSetting.get("media_path")
         if not media_path_raw:
-            P.logger.info("[디버그 logic] 저장된 미디어 경로 데이터가 비어있습니다.")
             return []
             
         ext_setting = P.ModelSetting.get("extensions")
@@ -53,12 +52,8 @@ def get_media_files(target_category=None):
         file_list = []
         paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
         
-        P.logger.info(f"[디버그 logic] 총 {len(paths)}개의 원본 라인을 파싱하기 시작합니다.")
-        
         for line in paths:
             parts = line.split('|')
-            
-            # 파이썬 표준 슬라이싱 기법으로 문법적 결함 완벽 방어 처리 완료
             if len(parts) >= 4:
                 category = parts[0].strip()
                 title = parts[1].strip()
@@ -91,21 +86,15 @@ def get_media_files(target_category=None):
             elif os.path.isfile(path):
                 if path.lower().endswith(valid_exts):
                     file_list.append({"category": category, "title": title, "quality": quality, "path": path.replace('\\', '/')})
-            else:
-                P.logger.error(f"[로컬 M3U 예외] 실제 경로에 파일이 존재하지 않아 무시됨: {path}")
-                
+                    
         return file_list
     except Exception as e:
-        P.logger.error(f"[디버그 logic] get_media_files 처리 도중 크래시 발생!")
         P.logger.error(traceback.format_exc())
         return []
 
 def get_media_list(req):
     try:
-        P.logger.info("[디버그 logic] get_media_list 함수 진입")
         files = get_media_files('all')
-        P.logger.info(f"[디버그 logic] get_media_files 수집 완료. 수량: {len(files)}")
-        
         result = []
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
@@ -120,7 +109,6 @@ def get_media_list(req):
             })
         return result
     except Exception as e:
-        P.logger.error(f"[디버그 logic] get_media_list에서 가공 도중 치명적 에러 발생!")
         P.logger.error(traceback.format_exc())
         raise e
 
@@ -141,25 +129,21 @@ def make_m3u(req):
         return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
     except Exception as e:
         P.logger.error(traceback.format_exc())
-        return Response(f"make_m3u 생성 중 에러: {str(e)}", status=500)
+        return Response(f"make_m3u 에러: {str(e)}", status=500)
 
 def play_ffmpeg_copy(encoded_name):
     try:
-        P.logger.info("========== [재생 준비 단계] ==========")
         full_str = _safe_b64decode(encoded_name)
-        
         if "||" in full_str:
             quality, full_path = full_str.split("||", 1)
         else:
             quality = "자동"
             full_path = full_str
             
-        P.logger.info(f"-> 최초 요청 경로: {full_path} (요청 화질: {quality})")
-        
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
         if full_path.startswith("http://") or full_path.startswith("https://"):
-            P.logger.info("-> 외부 스트림 감지. yt-dlp로 라이브/VOD 원본 주소 추출 시도")
+            P.logger.info(f"[재생 시작] YouTube: {full_path} (화질: {quality})")
             try:
                 import yt_dlp
                 format_str = 'best'
@@ -174,17 +158,15 @@ def play_ffmpeg_copy(encoded_name):
                     stream_url = info.get('url') or info.get('manifest_url')
                     
                     if stream_url:
-                        P.logger.info(f"-> [성공] {quality} 스트림 주소 확보. FFmpeg 프록시를 시작합니다.")
                         full_path = stream_url
-                        
                         headers = info.get('http_headers', {})
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
                     else:
+                        P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
                         return Response("유튜브 스트림 추출 실패", status=500)
             except Exception as e:
-                P.logger.error(f"-> [실패] 유튜브 추출 중 에러: {e}")
-                P.logger.error(traceback.format_exc())
+                P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
                 return Response(f"유튜브 에러: {e}", status=500)
             
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
@@ -196,7 +178,6 @@ def play_ffmpeg_copy(encoded_name):
                 "-muxdelay", "0", "-f", "mpegts", "-"
             ])
             
-            P.logger.info(f"FFmpeg 명령어 실행 준비 완료")
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
             
             @stream_with_context
@@ -210,19 +191,18 @@ def play_ffmpeg_copy(encoded_name):
                 finally:
                     if proc.poll() is None:
                         proc.kill()
-                    P.logger.info(f"FFmpeg 전송 종료 (사용자 접속 해제)")
+                    P.logger.info("[재생 종료] YouTube 스트림 연결 해제")
 
             return Response(generate(), mimetype="video/MP2T")
 
         else:
             if not os.path.isfile(full_path):
-                P.logger.error(f"-> [실패] 실제 파일이 존재하지 않습니다!! (404 Error)")
+                P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
             
-            P.logger.info(f"-> [로컬 파일] 다이렉트 전송 시작 (구간 탐색/HTTP Range 지원)")
+            P.logger.info(f"[재생 시작] 로컬 파일: {full_path}")
             return send_file(full_path, conditional=True)
             
     except Exception as e:
-        P.logger.error(f"재생 처리 에러: {str(e)}")
-        P.logger.error(traceback.format_exc())
+        P.logger.error(f"[재생 에러] {str(e)}")
         return Response("Playback Error", status=500)
