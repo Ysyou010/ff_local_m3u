@@ -1,94 +1,96 @@
 {% extends "base.html" %}
 {% block content %}
 <div>
-  {{ macros.m_tab_head_start() }}
-    {{ macros.m_tab_head('setting_pane', '설정', true) }}
-    {{ macros.m_tab_head('media_pane', '미디어', false) }}
-  {{ macros.m_tab_head_end() }}
+  <ul class="nav nav-tabs" role="tablist" style="margin-bottom: 20px;">
+    <li class="nav-item active" id="li_setting">
+      <a class="nav-link active" data-toggle="tab" href="#setting_pane" role="tab" style="padding: 10px 20px; font-weight: bold;">설정</a>
+    </li>
+    <li class="nav-item" id="li_media">
+      <a class="nav-link" data-toggle="tab" href="#media_pane" role="tab" style="padding: 10px 20px; font-weight: bold;">미디어</a>
+    </li>
+  </ul>
 
   <form id="setting" name="setting">
     
-    {{ macros.m_tab_content_start() }}
-    
-    <div class="tab-pane active show" id="setting_pane" role="tabpanel">
+    <div class="tab-content">
       
-      <div class="form-group row mt-3">
-        <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
-        <div class="col-sm-9">
-          <div class="input-group mb-2" style="width: 50%;">
-            <input type="text" id="manage_category_input" class="form-control" placeholder="새 카테고리명 입력">
-            <div class="input-group-append">
-              <button class="btn btn-outline-primary" type="button" id="btn_add_category"><i class="fa fa-plus"></i> 추가</button>
-            </div>
-          </div>
-          <div id="category_badges_display" class="mb-2"></div>
-          <small class="form-text text-muted">등록할 재생목록의 분류를 먼저 생성해 주세요. ('기본' 카테고리는 삭제할 수 없습니다)</small>
-        </div>
-      </div>
-      
-      {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (수정 후 빈 공간을 클릭하면 자동 저장됩니다)']) }}
-      
-      {{ macros.m_hr() }}
-      
-      <div class="form-group row">
-        <label class="col-sm-3 control-label text-sm-right">M3U API 주소</label>
-        <div class="col-sm-9" id="m3u_urls_display"></div>
-      </div>
-      
-    </div>
-    
-    <div class="tab-pane" id="media_pane" role="tabpanel">
-      
-      <div class="form-group row mt-3">
-        <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
-        <div class="col-sm-9">
-          <div class="d-flex mb-2">
-            <select id="new_category_select" class="form-control mr-1" style="width: 18%;"></select>
-            <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
-            
-            <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
-              <option value="자동">자동 (최대)</option>
-              <option value="1080p">1080p</option>
-              <option value="720p">720p</option>
-              <option value="480p">480p</option>
-              <option value="360p">360p</option>
-              <option value="240p">240p</option>
-              <option value="144p">144p (최저)</option>
-            </select>
-            
-            <div class="input-group" style="width: 47%;">
-              <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
+      <div class="tab-pane active in" id="setting_pane" role="tabpanel">
+        
+        <div class="form-group row mt-3">
+          <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
+          <div class="col-sm-9">
+            <div class="input-group mb-2" style="width: 50%;">
+              <input type="text" id="manage_category_input" class="form-control" placeholder="새 카테고리명 입력">
               <div class="input-group-append">
-                <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
-                <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
+                <button class="btn btn-outline-primary" type="button" id="btn_add_category"><i class="fa fa-plus"></i> 추가</button>
               </div>
             </div>
+            <div id="category_badges_display" class="mb-2"></div>
+            <small class="form-text text-muted">등록할 재생목록의 분류를 먼저 생성해 주세요. ('기본' 카테고리는 삭제할 수 없습니다)</small>
           </div>
-          <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다.</small>
         </div>
+        
+        {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (수정 후 빈 공간을 클릭하면 자동 저장됩니다)']) }}
+        
+        {{ macros.m_hr() }}
+        
+        <div class="form-group row">
+          <label class="col-sm-3 control-label text-sm-right">M3U API 주소</label>
+          <div class="col-sm-9" id="m3u_urls_display"></div>
+        </div>
+        
       </div>
-
-      <div class="form-group row">
-        <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
-        <div class="col-sm-9">
-          <div class="d-flex justify-content-between align-items-end mb-2">
-            <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
-              <option value="전체">전체 카테고리</option>
-            </select>
-            <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경 사항은 조용히 자동 저장됩니다.</b></small>
+      
+      <div class="tab-pane fade" id="media_pane" role="tabpanel">
+        
+        <div class="form-group row mt-3">
+          <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
+          <div class="col-sm-9">
+            <div class="d-flex mb-2">
+              <select id="new_category_select" class="form-control mr-1" style="width: 18%;"></select>
+              <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
+              
+              <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
+                <option value="자동">자동 (최대)</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="480p">480p</option>
+                <option value="360p">360p</option>
+                <option value="240p">240p</option>
+                <option value="144p">144p (최저)</option>
+              </select>
+              
+              <div class="input-group" style="width: 47%;">
+                <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
+                <div class="input-group-append">
+                  <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
+                  <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
+                </div>
+              </div>
+            </div>
+            <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다.</small>
           </div>
-          <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;"></ul>
         </div>
+
+        <div class="form-group row">
+          <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
+          <div class="col-sm-9">
+            <div class="d-flex justify-content-between align-items-end mb-2">
+              <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
+                <option value="전체">전체 카테고리</option>
+              </select>
+              <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경 사항은 조용히 자동 저장됩니다.</b></small>
+            </div>
+            <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 500px; overflow-y: auto; border-radius: 4px;"></ul>
+          </div>
+        </div>
+        
       </div>
       
     </div>
-    
-    {{ macros.m_tab_content_end() }}
-
     <div style="display: none;">
       <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
       <input type="hidden" id="category_list" name="category_list" value="{{ arg.get('category_list', '기본,영화,유튜브,드라마') }}">
-      <button id="globalSettingSaveBtn" type="button">숨겨진저장버튼</button>
     </div>
     
   </form>
@@ -117,6 +119,7 @@ function autoSaveList() {
     });
 }
 
+// 확장자 변경 시 자동 저장
 $("body").on('change', '#extensions', function() { autoSaveList(); });
 
 function initCategoryManager() {
@@ -323,18 +326,17 @@ $(document).ready(function(){
     }
     renderList();
 
-    // 🌟 [핵심 보정 시스템] 매크로의 중첩 태그 오류로 인해 탭 전환이 깨지는 현상을 강제로 제어합니다.
-    $('a[data-toggle="tab"]').on('click', function (e) {
+    // 🌟 SJVA의 내장 버전에 상관없이 완전히 완벽하게 작동하는 수동 탭 제어 스크립트 추가
+    $('.nav-tabs a').on('click', function (e) {
         e.preventDefault();
-        var targetId = $(this).attr('href');
+        // 상단 버튼 액티브 처리
+        $('.nav-tabs li').removeClass('active');
+        $(this).parent('li').addClass('active');
         
-        // 상단 클릭한 버튼의 active 상태 동기화
-        $('a[data-toggle="tab"]').removeClass('active');
-        $(this).addClass('active');
-
-        // 하단 콘텐츠 영역 완전 분리 및 쇼크 제어
-        $('.tab-pane').removeClass('active show');
-        $(targetId).addClass('active show');
+        // 하단 내용 패널 액티브 및 페이드인 전환 처리
+        var targetPane = $(this).attr('href');
+        $('.tab-pane').removeClass('active in show');
+        $(targetPane).addClass('active in show');
     });
 });
 
