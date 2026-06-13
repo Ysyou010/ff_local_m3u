@@ -3,7 +3,7 @@ import subprocess
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
-from flask import Response, stream_with_context, redirect, send_file, request
+from flask import Response, stream_with_context, redirect, send_file
 from framework import SystemModelSetting
 from .setup import P
 
@@ -140,104 +140,79 @@ def play_ffmpeg_copy(encoded_name):
             quality = "자동"
             full_path = full_str
             
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-
-        # ==========================================
-        # 1. 로컬 파일 처리: 실시간 가상 라이브 방송 채널화 (-re 옵션 필수)
-        # ==========================================
-        if not (full_path.startswith("http://") or full_path.startswith("https://")):
-            if not os.path.isfile(full_path):
-                P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
-                return Response(f"File not found: {full_path}", status=404)
-                
-            P.logger.info(f"[방송 송출] 로컬 파일을 IPTV 실시간 스트림으로 인코딩: {full_path}")
-            cmd.extend(["-re", "-i", full_path])
-            cmd.extend([
-                "-map", "0:v:0?", "-map", "0:a:0?",
-                "-c:v", "copy", "-c:a", "copy",
-                "-muxdelay", "0", 
-                "-mpegts_flags", "resend_headers", # ExoPlayer 재생 안정을 위한 헤더 반복 전송
-                "-pcr_period", "40",               # 타임스탬프 동기화 안정성 강화
-                "-f", "mpegts", "-"
-            ])
-            
-        # ==========================================
-        # 2. 유튜브 처리: 구글 차단 우회 복합 라이브 스트림화
-        # ==========================================
-        else:
-            P.logger.info(f"[방송 송출] 유튜브 영상을 IPTV 실시간 스트림으로 인코딩: {full_path}")
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        
+        if full_path.startswith("http://") or full_path.startswith("https://"):
+            P.logger.info(f"[재생 요청] YouTube: {full_path} (화질: {quality})")
             try:
                 import yt_dlp
-                
-                if quality in ["1080p", "1440p", "2160p"]:
+                format_str = 'best'
+                if quality.endswith('p') and quality[:-1].isdigit():
                     max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]'
-                else:
-                    if quality == "자동":
-                        format_str = 'bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best'
-                    else:
-                        max_height = quality[:-1]
-                        format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best'
-                        
+                    format_str = f'best[height<={max_height}]/best'
+                    
                 ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(full_path, download=False)
-                    is_live = info.get('is_live', False)
                     stream_url = info.get('url') or info.get('manifest_url')
-                    user_agent = info.get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
-                    req_formats = info.get('requested_formats')
+                    # 🌟 유튜브의 라이브 여부를 확인합니다.
+                    is_live = info.get('is_live', False)
                     
-                    if req_formats and len(req_formats) == 2 and not is_live:
-                        cmd.extend(["-user_agent", user_agent, "-i", req_formats[0].get('url'), "-i", req_formats[1].get('url')])
-                        cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
-                    else:
-                        cmd.extend(["-user_agent", user_agent, "-i", stream_url])
-                        cmd.extend(["-map", "0:v:0?", "-map", "0:a:0?"])
+                    if stream_url:
+                        # 🌟 1. 일반 영상(VOD)인 경우: 플레이어 다이렉트 토스 (앞뒤 이동 완벽 지원)
+                        if not is_live:
+                            P.logger.info(f"[재생 시작] YouTube VOD 리다이렉트 (탐색 활성화): {full_path}")
+                            return redirect(stream_url, code=302)
                         
-                    cmd.extend([
-                        "-c:v", "copy", "-c:a", "copy",
-                        # [수정됨] m3u8 및 실시간 스트림에서 FFmpeg가 크래시되는 원인인 비트스트림 필터 삭제
-                        "-fflags", "+genpts",
-                        "-muxdelay", "0", 
-                        "-mpegts_flags", "resend_headers", 
-                        "-pcr_period", "40",               
-                        "-f", "mpegts", "-"
-                    ])
+                        # 🌟 2. 라이브 방송인 경우: 기존 방식대로 안전하게 FFmpeg 프록시 중계
+                        P.logger.info(f"[재생 시작] YouTube 라이브 프록시 중계 가동: {full_path}")
+                        full_path = stream_url
+                        headers = info.get('http_headers', {})
+                        if headers and 'User-Agent' in headers:
+                            user_agent = headers['User-Agent']
+                    else:
+                        P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
+                        return Response("유튜브 스트림 추출 실패", status=500)
             except Exception as e:
-                P.logger.error(f"[재생 실패] 유튜브 파싱 에러: {e}")
+                P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
                 return Response(f"유튜브 에러: {e}", status=500)
+            
+            # 라이브 방송 전용 중계 인코더 명령조립
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+            cmd.extend(["-user_agent", user_agent])
+            cmd.extend([
+                "-i", full_path,
+                "-map", "0:v:0?", "-map", "0:a:0?",
+                "-c:v", "copy", "-c:a", "copy",
+                "-muxdelay", "0", "-f", "mpegts", "-"
+            ])
+            
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+            
+            @stream_with_context
+            def generate():
+                try:
+                    while True:
+                        chunk = proc.stdout.read(188 * 32)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                    P.logger.info("[재생 종료] YouTube 라이브 스트림 연결 해제")
 
-        # ==========================================
-        # 3. 통합 실시간 미디어 스트림 출력 (IPTV 규격 통일)
-        # ==========================================
-        # stderr=subprocess.DEVNULL 로 변경하여 장시간 재생 시 파이프라인 데드락(멈춤) 방지
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-        
-        @stream_with_context
-        def generate_live_stream():
-            try:
-                # [수정됨] 초기 응답(TTFB)을 빠르게 하기 위해 청크 버퍼 사이즈 다시 축소
-                chunk_size = 188 * 32 
-                while True:
-                    chunk = proc.stdout.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-            finally:
-                if proc.poll() is None:
-                    proc.kill()
-                P.logger.info("[송출 종료] 실시간 IPTV 파이프라인 닫힘")
+            return Response(generate(), mimetype="video/MP2T")
 
-        # 스트리밍용 HTTP 응답 헤더 명시적 추가
-        response = Response(generate_live_stream(), mimetype="video/MP2T")
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Connection'] = 'keep-alive'
-        
-        return response
-
+        else:
+            if not os.path.isfile(full_path):
+                P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
+                return Response(f"File not found: {full_path}", status=404)
+            
+            P.logger.info(f"[재생 시작] 로컬 파일: {full_path}")
+            return send_file(full_path, conditional=True)
+            
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
-        P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
