@@ -140,84 +140,77 @@ def play_ffmpeg_copy(encoded_name):
             quality = "자동"
             full_path = full_str
             
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+
         # ==========================================
-        # 1. 로컬 파일: 100% 순정 코드 (건드리지 않음)
+        # 1. 로컬 파일 처리: 실시간 가상 라이브 방송 채널화 (-re 옵션 필수)
         # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
                 
-            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트: {full_path}")
-            return send_file(full_path, conditional=True)
+            P.logger.info(f"[방송 송출] 로컬 파일을 IPTV 실시간 스트림으로 인코딩: {full_path}")
+            # -re 옵션이 정적 파일을 실시간 방송 배속(1배속)으로 강제 변환합니다.
+            cmd.extend(["-re", "-i", full_path])
+            cmd.extend([
+                "-map", "0:v:0?", "-map", "0:a:0?",
+                "-c:v", "copy", "-c:a", "copy",
+                "-muxdelay", "0", "-f", "mpegts", "-"
+            ])
             
         # ==========================================
-        # 2. 유튜브 처리
+        # 2. 유튜브 처리: 구글 차단 우회 복합 라이브 스트림화
         # ==========================================
-        P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
-        
-        try:
-            import yt_dlp
-            import requests
-            
-            # 합본 파일 중 최고 화질(최대 720p) 추출
-            if quality == "자동":
-                format_str = 'best[ext=mp4]/best'
-            elif quality.endswith('p') and quality[:-1].isdigit():
-                max_height = quality[:-1]
-                format_str = f'best[height<={max_height}][ext=mp4]/best[ext=mp4]/best'
-            else:
-                format_str = 'best'
+        else:
+            P.logger.info(f"[방송 송출] 유튜브 영상을 IPTV 실시간 스트림으로 인코딩: {full_path}")
+            try:
+                import yt_dlp
                 
-            ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(full_path, download=False)
-                is_live = info.get('is_live', False)
-                stream_url = info.get('url') or info.get('manifest_url')
-                user_agent = info.get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
-                
-                if not stream_url:
-                    return Response("스트림 주소 추출 실패", status=500)
-                
-                # 🌟 [VOD] 유튜브 원본 파이썬 중계 (구글 차단 회피 + 앞뒤 구간 탐색 지원)
-                if not is_live:
-                    P.logger.info(f"[재생 시작] YouTube VOD 서버 자체 중계 (탐색 지원)")
-                    
-                    req_headers = {"User-Agent": user_agent}
-                    # 플레이어가 구간 이동(넘기기)을 요청하면, 그 요청을 구글에 그대로 전달
-                    if request.headers.get('Range'):
-                        req_headers['Range'] = request.headers.get('Range')
+                # 안전한 재생을 위해 안드로이드 전용 H.264(avc1) 코덱 규격 타겟팅
+                if quality in ["1080p", "1440p", "2160p"]:
+                    max_height = quality[:-1]
+                    format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]'
+                else:
+                    if quality == "자동":
+                        format_str = 'bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+                    else:
+                        max_height = quality[:-1]
+                        format_str = f'bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best'
                         
-                    r = requests.get(stream_url, headers=req_headers, stream=True)
+                ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(full_path, download=False)
+                    is_live = info.get('is_live', False)
+                    stream_url = info.get('url') or info.get('manifest_url')
+                    user_agent = info.get('http_headers', {}).get('User-Agent', "Mozilla/5.0")
+                    req_formats = info.get('requested_formats')
                     
-                    def generate():
-                        for chunk in r.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
-                                yield chunk
-                                
-                    # 구글의 응답(정상 전송 또는 구간 전송 206)을 플레이어에게 그대로 패스
-                    resp = Response(stream_with_context(generate()), status=r.status_code)
-                    for k in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
-                        if k in r.headers:
-                            resp.headers[k] = r.headers[k]
-                    return resp
-                
-                # 🌟 [LIVE] 라이브 방송은 FFmpeg로 파이프 전송
-                P.logger.info(f"[재생 시작] YouTube 라이브 방송 FFmpeg 중계 가동")
-                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                cmd.extend(["-user_agent", user_agent, "-i", stream_url])
-                cmd.extend(["-c:v", "copy", "-c:a", "copy", "-muxdelay", "0", "-f", "mpegts", "-"])
-                
-        except Exception as e:
-            P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-            P.logger.error(traceback.format_exc())
-            return Response(f"유튜브 에러: {e}", status=500)
-        
+                    if req_formats and len(req_formats) == 2 and not is_live:
+                        cmd.extend(["-user_agent", user_agent, "-i", req_formats[0].get('url'), "-i", req_formats[1].get('url')])
+                        cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
+                    else:
+                        cmd.extend(["-user_agent", user_agent, "-i", stream_url])
+                        cmd.extend(["-map", "0:v:0?", "-map", "0:a:0?"])
+                        
+                    cmd.extend([
+                        "-c:v", "copy", "-c:a", "copy",
+                        "-bsf:v", "h264_mp4toannexb",
+                        "-fflags", "+genpts",
+                        "-muxdelay", "0", "-f", "mpegts", "-"
+                    ])
+            except Exception as e:
+                P.logger.error(f"[재생 실패] 유튜브 파싱 에러: {e}")
+                return Response(f"유튜브 에러: {e}", status=500)
+
+        # ==========================================
+        # 3. 통합 실시간 미디어 스트림 출력 (IPTV 규격 통일)
+        # ==========================================
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         
         @stream_with_context
-        def generate_live():
+        def generate_live_stream():
             try:
                 while True:
                     chunk = proc.stdout.read(188 * 32)
@@ -227,8 +220,9 @@ def play_ffmpeg_copy(encoded_name):
             finally:
                 if proc.poll() is None:
                     proc.kill()
+                P.logger.info("[송출 종료] 실시간 IPTV 파이프라인 닫힘")
 
-        return Response(generate_live(), mimetype="video/MP2T")
+        return Response(generate_live_stream(), mimetype="video/MP2T")
 
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
