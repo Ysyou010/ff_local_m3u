@@ -1,98 +1,89 @@
 {% extends "base.html" %}
 {% block content %}
 <div>
-  {{ macros.m_button_group([['list_reload_btn', '새로고침']])}}
-  
-  <div id="list_div" class="mt-3 mb-3">
-    <table id="result_table" class="table table-sm table-striped table-hover">
-        <thead class="thead-dark"><tr>
-            <th style="width:5%; text-align:center;">No</th>
-            <th style="width:25%; text-align:left;">파일명</th>
-            <th style="width:50%; text-align:left;">경로</th>
-            <th style="width:20%; text-align:center;">Action</th>
-        </tr></thead>
-        <tbody id="list_tbody">
-        </tbody>
+  {{ macros.m_tab_head_start() }}
+    {{ macros.m_tab_head('list', '파일 목록', true) }}
+  {{ macros.m_tab_head_end() }}
+
+  {{ macros.m_tab_content_start() }}
+  <div class="tab-pane active" id="list">
+    <table id="result_table" class="table table-bordered table-striped table-hover表格-sm">
+      <thead class="thead-dark">
+        <tr>
+          <th style="width: 8%; text-align: center;">No</th>
+          <th style="width: 52%;">파일명 (경로)</th>
+          <th style="width: 25%; text-align: center;">Action</th>
+        </tr>
+      </thead>
+      <tbody id="list_tbody">
+        <tr><td colspan="3" class="text-center text-muted p-4">목록을 불러오는 중입니다...</td></tr>
+      </tbody>
     </table>
   </div>
+  {{ macros.m_tab_content_end() }}
 </div>
 
-<form name="playform">
-  <input type="hidden" id="play_title" name="play_title">
-  <input type="hidden" id="play_source_src"  name="play_source_src">
-  <input type="hidden" id="play_source_type"  name="play_source_type">
-</form>
-
 <script type="text/javascript">
+var package_name = "{{ arg['package_name'] }}";
+var sub = "{{ arg['sub'] }}";
+
 $(document).ready(function(){
-    load_list();
-});
-
-$("body").on('click', '#list_reload_btn', function(e){
-    e.preventDefault();
-    load_list();
-});
-
-function load_list() {
-    globalSendCommand('get_list', null, null, null, function(ret){
-        if(ret.ret == 'success'){
-            make_list(ret.list);
-        } else {
-            notify(ret.msg, 'danger');
+    // 페이지가 열리자마자 백엔드(mod_main.py)에 파일 목록 데이터를 요청합니다.
+    $.ajax({
+        url: '/' + package_name + '/ajax/main/get_list',
+        type: "POST",
+        cache: false,
+        success: function (data) {
+            if (data.ret == 'success' && data.list.length > 0) {
+                make_list(data.list);
+            } else {
+                $('#list_tbody').html('<tr><td colspan="3" class="text-center text-muted p-4">등록된 파일이 없거나 경로가 잘못되었습니다. 설정 탭에서 경로를 확인하세요.</td></tr>');
+            }
+        },
+        error: function() {
+            $('#list_tbody').html('<tr><td colspan="3" class="text-center class-danger p-4">서버와 통신 중 에러가 발생했습니다.</td></tr>');
         }
     });
-}
-
-function make_list(data) {
-    var str = '';
-    if (data.length == 0) {
-        str += '<tr><td colspan="4" style="text-align:center;">등록된 파일이 없거나 경로가 잘못되었습니다. 설정 탭에서 파일을 추가하세요.</td></tr>';
-    } else {
-        for (var i = 0; i < data.length; i++) {
-            var item = data[i];
-            str += '<tr>';
-            str += '<td style="text-align:center;">' + item.idx + '</td>';
-            str += '<td style="text-align:left; word-break:break-all;"><b>' + item.name + '</b></td>';
-            str += '<td style="text-align:left; word-break:break-all; font-size:0.85em; color:gray;">' + item.path + '</td>';
-            
-            var buttons = '';
-            buttons += j_button('play_btn', '<i class="fa fa-play px-1"></i> 재생', {'url': item.url, 'name': item.name}, 'secondary', false, true);
-            buttons += j_button('copy_btn', '<i class="fa fa-clipboard px-1"></i> 주소', {'url': item.url}, 'secondary', false, true);
-            
-            str += '<td style="text-align:center;">' + j_button_group(buttons) + '</td>';
-            str += '</tr>';
-        }
-    }
-    $('#list_tbody').html(str);
-}
-
-$("body").on('click', '#play_btn', function(e){
-    e.preventDefault();
-    var url = $(this).data('url');
-    var name = $(this).data('name');
-    var form = document.playform;
-    
-    var popupWidth = 980;
-    var leftPos = screen.width - popupWidth;
-    
-    window.open('', url, "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
-    
-    form.action = "/videojs";
-    form.method = "post";
-    form.target = url;
-    
-    $('#play_title').val(name);
-    $('#play_source_src').val(url);
-    $('#play_source_type').val('video/mp2t'); 
-    form.submit();
 });
 
-$("body").on('click', '#copy_btn', function(e){
+// 백엔드에서 받은 json 데이터를 바탕으로 HTML 표를 안전하게 그려내는 함수입니다.
+function make_list(data) {
+    var html = '';
+    for (var i = 0; i < data.length; i++) {
+        var item = data[i];
+        
+        html += '<tr>';
+        // 1. 번호 출력
+        html += '<td style="text-align: center; vertical-align: middle;">' + item.idx + '</td>';
+        
+        // 2. 파일 경로 및 주소 정보 출력 (글자가 깨지거나 붙지 않도록 분리)
+        html += '<td style="vertical-align: middle; word-break: break-all;">';
+        html += '  <span class="font-weight-bold">' + item.name + '</span>';
+        html += '</td>';
+        
+        // 3. 우측에 깔끔한 재생 및 링크 복사 버튼 배치
+        html += '<td style="text-align: center; vertical-align: middle;">';
+        html += '  <div class="btn-group btn-group-sm" role="group">';
+        html += '    <a href="' + item.url + '" target="_blank" class="btn btn-info btn-sm">웹재생</a>';
+        html += '    <button class="btn btn-success btn-sm btn-clipboard" data-clipboard-text="' + item.url + '">주소 복사</button>';
+        html += '  </div>';
+        html += '</td>';
+        html += '</tr>';
+    }
+    $('#list_tbody').html(html);
+}
+
+// 주소 복사 버튼 기능 활성화
+$("body").on('click', '.btn-clipboard', function(e){
     e.preventDefault();
-    var url = $(this).data('url');
-    var str = url + '<br><br>';
-    str += j_button_group(j_button('globalCliboardBtn', '클립보드 복사', {'text':url}, 'success'));
-    showModal(str, '스트리밍 주소', false);
+    var text = $(this).attr('data-clipboard-text');
+    var t = document.createElement("textarea");
+    document.body.appendChild(t);
+    t.value = text;
+    t.select();
+    document.execCommand('copy');
+    document.body.removeChild(t);
+    notify('스트리밍 주소가 클립보드에 복사되었습니다.', 'success');
 });
 </script>
 {% endblock %}
