@@ -34,7 +34,7 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return error_msg
 
-    # 🌟 [수정된 부분] 함수 이름을 process_command 에서 process_ajax 로 변경했습니다!
+    # 🌟 이 부분이 핵심입니다! 화면의 요청을 알아들을 수 있도록 process_ajax로 이름을 고쳤습니다.
     def process_ajax(self, sub, req):
         try:
             if sub == "get_list":
