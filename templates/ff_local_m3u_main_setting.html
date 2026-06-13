@@ -13,17 +13,25 @@
         <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
         <div class="col-sm-9">
           <div class="d-flex mb-2">
-            <input type="text" id="new_category_input" class="form-control mr-2" placeholder="재생목록 이름 (예: 영화)" style="width: 20%;">
-            <input type="text" id="new_title_input" class="form-control mr-2" placeholder="채널/제목" style="width: 25%;">
-            <div class="input-group" style="width: 55%;">
-              <input type="text" id="new_path_input" class="form-control" placeholder="절대 경로 또는 URL">
+            <input type="text" id="new_category_input" class="form-control mr-1" placeholder="목록명 (예: 영화)" style="width: 18%;">
+            <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
+            
+            <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
+              <option value="자동">자동 (최대)</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+            </select>
+            
+            <div class="input-group" style="width: 47%;">
+              <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
               <div class="input-group-append">
-                <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i> 추가</button>
-                <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i> 탐색기</button>
+                <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
+                <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
               </div>
             </div>
           </div>
-          <small class="form-text text-muted">재생목록 이름을 지정하면 해당 이름별로 독립된 M3U 주소가 생성됩니다.</small>
+          <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다.</small>
         </div>
       </div>
 
@@ -36,7 +44,6 @@
             </select>
             <small class="text-danger"><b>※ 순서 변경 및 삭제 후 반드시 [저장]을 눌러주세요.</b></small>
           </div>
-          
           <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 400px; overflow-y: auto; border-radius: 4px;"></ul>
         </div>
       </div>
@@ -65,7 +72,7 @@
 <script type="text/javascript">
 var pathArray = [];
 var base_m3u_url = "{{ arg.get('api_m3u', '') }}"; 
-var currentFilter = "전체"; // 현재 선택된 필터 카테고리
+var currentFilter = "전체";
 
 function getFileName(path) {
     if (path.startsWith("http://") || path.startsWith("https://")) return "YouTube Stream"; 
@@ -73,20 +80,18 @@ function getFileName(path) {
     return split[split.length - 1] || path;
 }
 
-// 리스트 렌더링 및 순서 조작 버튼 생성
 function renderList() {
     var categories = new Set();
     var textLines = [];
     
-    // 데이터 취합 및 텍스트 데이터화
     for (var i = 0; i < pathArray.length; i++) {
         categories.add(pathArray[i].category);
-        textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].path);
+        // 카테고리 | 제목 | 화질 | 경로 형태로 저장
+        textLines.push(pathArray[i].category + '|' + pathArray[i].title + '|' + pathArray[i].quality + '|' + pathArray[i].path);
     }
     
     $('#media_path').val(textLines.join('\n'));
     
-    // 필터 드롭다운 업데이트
     var filterHtml = '<option value="전체">전체 카테고리 (' + pathArray.length + ')</option>';
     Array.from(categories).forEach(function(cat) {
         var count = pathArray.filter(function(item) { return item.category === cat; }).length;
@@ -94,21 +99,14 @@ function renderList() {
         filterHtml += '<option value="' + cat + '"' + selected + '>[' + cat + '] (' + count + ')</option>';
     });
     
-    // 만약 현재 필터링 중이던 카테고리가 싹 다 지워졌다면 '전체'로 복귀
-    if (currentFilter !== '전체' && !categories.has(currentFilter)) {
-        currentFilter = '전체';
-    }
-    
+    if (currentFilter !== '전체' && !categories.has(currentFilter)) currentFilter = '전체';
     $('#category_filter').html(filterHtml);
     $('#category_filter').val(currentFilter);
     
-    // 화면에 보여줄 요소 필터링 및 인덱스 매핑
     var html = '';
     var visibleIndices = [];
     for (var i = 0; i < pathArray.length; i++) {
-        if (currentFilter === '전체' || pathArray[i].category === currentFilter) {
-            visibleIndices.push(i);
-        }
+        if (currentFilter === '전체' || pathArray[i].category === currentFilter) visibleIndices.push(i);
     }
     
     if (visibleIndices.length === 0) {
@@ -120,21 +118,21 @@ function renderList() {
             
             html += '<li class="list-group-item d-flex justify-content-between align-items-center py-2 pr-2">';
             html += '<div style="word-break: break-all; font-size: 14px; line-height: 1.2;">';
-            html += '  <span class="badge badge-info mr-2">' + item.category + '</span>';
+            html += '  <span class="badge badge-info mr-1">' + item.category + '</span>';
+            // 화질 뱃지 표시
+            html += '  <span class="badge badge-warning mr-2">' + item.quality + '</span>';
             html += '  <strong class="text-primary">' + item.title + '</strong><br>';
             html += '  <small class="text-muted">' + item.path + '</small>';
             html += '</div>';
             
-            // 버튼 그룹 (위/아래/삭제)
             html += '<div class="btn-group btn-group-sm" role="group">';
-            
             var upDisabled = (v === 0) ? 'disabled' : '';
             var targetUpIdx = (v > 0) ? visibleIndices[v - 1] : -1;
-            html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetUpIdx + '" ' + upDisabled + ' title="위로 이동"><i class="fa fa-arrow-up"></i></button>';
+            html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetUpIdx + '" ' + upDisabled + ' title="위로"><i class="fa fa-arrow-up"></i></button>';
             
             var downDisabled = (v === visibleIndices.length - 1) ? 'disabled' : '';
             var targetDownIdx = (v < visibleIndices.length - 1) ? visibleIndices[v + 1] : -1;
-            html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetDownIdx + '" ' + downDisabled + ' title="아래로 이동"><i class="fa fa-arrow-down"></i></button>';
+            html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetDownIdx + '" ' + downDisabled + ' title="아래로"><i class="fa fa-arrow-down"></i></button>';
             
             html += '<button class="btn btn-outline-danger delete_path_btn" data-idx="' + absIdx + '" title="삭제"><i class="fa fa-trash"></i></button>';
             html += '</div>';
@@ -168,7 +166,7 @@ function renderM3uUrls(categories) {
     $('#m3u_urls_display').html(html);
 }
 
-function addPath(newCategory, newTitle, newPath) {
+function addPath(newCategory, newTitle, newQuality, newPath) {
     newPath = newPath.trim();
     newTitle = newTitle.trim();
     newCategory = newCategory.trim();
@@ -176,20 +174,21 @@ function addPath(newCategory, newTitle, newPath) {
     if (newPath === '') { notify('경로나 URL을 입력하세요.', 'warning'); return; }
     if (newCategory === '') { newCategory = '기본'; }
     if (newTitle === '') { newTitle = getFileName(newPath); }
+    if (newQuality === '') { newQuality = '자동'; }
     
     for (var i = 0; i < pathArray.length; i++) {
         if (pathArray[i].path === newPath) { notify('이미 등록된 경로입니다.', 'warning'); return; }
     }
     
-    pathArray.push({category: newCategory, title: newTitle, path: newPath});
+    pathArray.push({category: newCategory, title: newTitle, quality: newQuality, path: newPath});
     renderList();
     
     $('#new_path_input').val('');
     $('#new_title_input').val('');
+    $('#new_quality_select').val('자동');
     $('#new_path_input').focus(); 
 }
 
-// 이벤트 바인딩
 $(document).ready(function(){
     var initialText = $('#media_path').val().trim();
     if (initialText !== '') {
@@ -198,12 +197,15 @@ $(document).ready(function(){
             var line = lines[i].trim();
             if (line !== '') {
                 var parts = line.split('|');
-                if (parts.length >= 3) {
-                    pathArray.push({category: parts[0].trim(), title: parts[1].trim(), path: parts.slice(2).join('|').trim()});
+                // 기존 데이터 호환성 보장 로직
+                if (parts.length >= 4) {
+                    pathArray.push({category: parts[0].trim(), title: parts[1].trim(), quality: parts[2].trim(), path: parts.slice(3).join('|').trim()});
+                } else if (parts.length === 3) {
+                    pathArray.push({category: parts[0].trim(), title: parts[1].trim(), quality: '자동', path: parts.slice(2).join('|').trim()});
                 } else if (parts.length === 2) {
-                    pathArray.push({category: '기본', title: parts[0].trim(), path: parts[1].trim()});
+                    pathArray.push({category: '기본', title: parts[0].trim(), quality: '자동', path: parts[1].trim()});
                 } else {
-                    pathArray.push({category: '기본', title: getFileName(line), path: line});
+                    pathArray.push({category: '기본', title: getFileName(line), quality: '자동', path: line});
                 }
             }
         }
@@ -211,33 +213,26 @@ $(document).ready(function(){
     renderList();
 });
 
-$("body").on('change', '#category_filter', function() {
-    currentFilter = $(this).val();
-    renderList();
-});
+$("body").on('change', '#category_filter', function() { currentFilter = $(this).val(); renderList(); });
 
 $("body").on('click', '#add_path_btn', function(e){
     e.preventDefault();
-    addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_path_input').val());
+    addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
 });
 
 $('#new_path_input').keypress(function(e){
     if(e.which == 13) {
         e.preventDefault();
-        addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_path_input').val());
+        addPath($('#new_category_input').val(), $('#new_title_input').val(), $('#new_quality_select').val(), $('#new_path_input').val());
     }
 });
 
-// 순서 이동 버튼 로직 (위로/아래로)
 $("body").on('click', '.move_btn', function(e){
     e.preventDefault();
     var idx1 = parseInt($(this).data('idx'));
     var idx2 = parseInt($(this).data('target'));
-    
     if (idx1 >= 0 && idx2 >= 0) {
-        var temp = pathArray[idx1];
-        pathArray[idx1] = pathArray[idx2];
-        pathArray[idx2] = temp;
+        var temp = pathArray[idx1]; pathArray[idx1] = pathArray[idx2]; pathArray[idx2] = temp;
         renderList();
     }
 });
@@ -253,19 +248,14 @@ $("body").on('click', '#open_explorer_btn', function(e){
     var start_path = '/';
     if (pathArray.length > 0) start_path = pathArray[pathArray.length - 1].path;
     globalSelectLocalFile("미디어 파일 선택", start_path, function(result){
-        if (result) addPath($('#new_category_input').val(), $('#new_title_input').val(), result);
+        if (result) addPath($('#new_category_input').val(), $('#new_title_input').val(), '자동', result);
     });
 });
 
 $("body").on('click', '.btn_copy_url', function(e){
     e.preventDefault();
     var text = $(this).data('clipboard-text');
-    var t = document.createElement("textarea");
-    document.body.appendChild(t);
-    t.value = text;
-    t.select();
-    document.execCommand('copy');
-    document.body.removeChild(t);
+    var t = document.createElement("textarea"); document.body.appendChild(t); t.value = text; t.select(); document.execCommand('copy'); document.body.removeChild(t);
     notify('M3U 주소가 복사되었습니다.', 'success');
 });
 </script>
