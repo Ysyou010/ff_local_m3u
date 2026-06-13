@@ -255,12 +255,11 @@ $("body").on('click', '.delete_path_btn', function(e){
     autoSaveList();
 });
 
-// ★ 유튜브 주소 꼬임 방지 로직이 적용된 탐색기 호출 부분
+// ★ 탐색기 동작 방식 변경
 $("body").on('click', '#open_explorer_btn', function(e){
     e.preventDefault();
     var start_path = '/';
     
-    // 가장 최근에 등록된 '로컬 파일' 경로를 찾습니다 (유튜브 URL 제외)
     if (pathArray.length > 0) {
         for (var i = pathArray.length - 1; i >= 0; i--) {
             var tempPath = pathArray[i].path;
@@ -272,7 +271,12 @@ $("body").on('click', '#open_explorer_btn', function(e){
     }
     
     globalSelectLocalFile("미디어 파일 선택", start_path, function(result){
-        if (result) addPath($('#new_category_input').val(), $('#new_title_input').val(), '자동', result);
+        // ★ 바로 리스트에 넣지 않고 경로 입력창에 값을 채워넣습니다.
+        if (result) {
+            $('#new_path_input').val(result);
+            // 입력칸으로 포커스를 옮겨서 사용자가 확인하기 편하게 합니다.
+            $('#new_path_input').focus();
+        }
     });
 });
 
