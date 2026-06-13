@@ -87,7 +87,6 @@ function autoSaveList() {
     $('#globalSettingSaveBtn').click();
 }
 
-// ★ 확장자 입력칸의 내용이 바뀌고 포커스를 잃을 때(빈 공간 클릭 시) 자동 저장
 $("body").on('change', '#extensions', function() {
     autoSaveList();
 });
@@ -256,10 +255,22 @@ $("body").on('click', '.delete_path_btn', function(e){
     autoSaveList();
 });
 
+// ★ 유튜브 주소 꼬임 방지 로직이 적용된 탐색기 호출 부분
 $("body").on('click', '#open_explorer_btn', function(e){
     e.preventDefault();
     var start_path = '/';
-    if (pathArray.length > 0) start_path = pathArray[pathArray.length - 1].path;
+    
+    // 가장 최근에 등록된 '로컬 파일' 경로를 찾습니다 (유튜브 URL 제외)
+    if (pathArray.length > 0) {
+        for (var i = pathArray.length - 1; i >= 0; i--) {
+            var tempPath = pathArray[i].path;
+            if (!tempPath.startsWith("http://") && !tempPath.startsWith("https://")) {
+                start_path = tempPath;
+                break;
+            }
+        }
+    }
+    
     globalSelectLocalFile("미디어 파일 선택", start_path, function(result){
         if (result) addPath($('#new_category_input').val(), $('#new_title_input').val(), '자동', result);
     });
