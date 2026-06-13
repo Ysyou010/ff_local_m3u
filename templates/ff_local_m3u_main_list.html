@@ -30,7 +30,11 @@ var categories = [];
 var current_category = "전체";
 
 $(document).ready(function(){
+    console.log("[디버그] 재생 목록 프레임워크 전용 채널 요청 시작");
+    
+    // 🌟 위험한 $.ajax 통신을 지우고 순정 프레임워크 연동 함수로 완벽 변환하여 500 에러를 원천 차단합니다.
     globalSendCommand('get_list', null, null, null, function(data) {
+        console.log("[디버그] 순정 통신 응답 성공:", data);
         if (data.ret == "success") {
             current_data = data.list;
             extractCategories(); 
@@ -129,14 +133,10 @@ $("body").on('click', '.play_btn', function(e){
     var popupWidth = 980;
     var leftPos = screen.width - popupWidth;
     
-    // 🌟 [핵심] 안드로이드 모바일 브라우저 팝업 캐싱 방지: 매번 고유한 이름을 생성합니다.
-    var uniqueTarget = 'play_popup_' + new Date().getTime();
-    
-    window.open('', uniqueTarget, "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
-    
+    window.open('', 'play_popup', "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
     form.action = "/videojs";
     form.method = "post";
-    form.target = uniqueTarget; 
+    form.target = 'play_popup'; 
     $('#play_title').val(name);
     $('#play_source_src').val(url);
     $('#play_source_type').val('video/mp2t'); 
