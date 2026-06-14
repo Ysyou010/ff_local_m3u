@@ -99,7 +99,10 @@ def get_media_list(req):
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            play_url = get_api_url(req, "play", {"file": encoded_name})
+            
+            # 🌟 안드로이드가 MKV 컨테이너를 정확히 파싱하도록 확장자를 변경합니다.
+            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mkv'
+            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = f"[{item['category']}] {item['title']}"
             result.append({
@@ -121,7 +124,10 @@ def make_m3u(req):
         for index, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
-            play_url = get_api_url(req, "play", {"file": encoded_name})
+            
+            # 🌟 안드로이드가 MKV 컨테이너를 정확히 파싱하도록 확장자를 변경합니다.
+            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mkv'
+            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = item['title']
             lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
@@ -142,101 +148,113 @@ def play_ffmpeg_copy(encoded_name):
             
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
-        if full_path.startswith("http://") or full_path.startswith("https://"):
-            P.logger.info(f"[재생 요청] YouTube: {full_path} (화질: {quality})")
-            try:
-                import yt_dlp
-                
-                # 🌟 고화질 실시간 합성 처리를 위해 비디오와 오디오 분리형 포맷 스트링 조립
-                format_str = 'bestvideo+bestaudio/best'
-                if quality.endswith('p') and quality[:-1].isdigit():
-                    max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]'
-                    
-                ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
-                
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(full_path, download=False)
-                    is_live = info.get('is_live', False)
-                    req_formats = info.get('requested_formats')
-                    
-                    # 🌟 Case 1: 비디오와 오디오 주소가 완전히 분리된 진짜 고화질 VOD일 때 (FFmpeg 복합 프록시 가동)
-                    if req_formats and len(req_formats) == 2 and not is_live:
-                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD 복합 스트림 프록시 중계 ({quality})")
-                        video_url = req_formats[0].get('url')
-                        audio_url = req_formats[1].get('url')
-                        
-                        headers = req_formats[0].get('http_headers', {})
-                        if headers and 'User-Agent' in headers:
-                            user_agent = headers['User-Agent']
-                            
-                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                        cmd.extend(["-user_agent", user_agent])
-                        cmd.extend([
-                            "-i", video_url,
-                            "-i", audio_url,
-                            "-map", "0:v:0", "-map", "1:a:0",
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-muxdelay", "0", "-f", "mpegts", "-"
-                        ])
-                    
-                    # 🌟 Case 2: 라이브 방송이거나 분리가 안 된 단일 스트림 저화질일 때
-                    else:
-                        stream_url = info.get('url') or info.get('manifest_url')
-                        if not stream_url:
-                            return Response("스트림 주소 추출 실패", status=500)
-                            
-                        headers = info.get('http_headers', {})
-                        if headers and 'User-Agent' in headers:
-                            user_agent = headers['User-Agent']
-                            
-                        if not is_live:
-                            # 360p 이하의 단일 스트림은 부드러운 구간 탐색을 위해 302 리다이렉트 처리
-                            P.logger.info(f"[재생 시작] YouTube 저화질 단일 스트림 VOD 리다이렉트")
-                            return redirect(stream_url, code=302)
-                        
-                        # 라이브 방송은 단일 HLS 스트림을 실시간 TS 규격 중계
-                        P.logger.info(f"[재생 시작] YouTube 라이브 스트림 프록시 중계")
-                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                        cmd.extend(["-user_agent", user_agent])
-                        cmd.extend([
-                            "-i", stream_url,
-                            "-map", "0:v:0?", "-map", "0:a:0?",
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-muxdelay", "0", "-f", "mpegts", "-"
-                        ])
-                        
-            except Exception as e:
-                P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-                P.logger.error(traceback.format_exc())
-                return Response(f"유튜브 에러: {e}", status=500)
-            
-            # 실시간 FFmpeg 덤프 데이터 인코딩 스트리밍 출력
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-            
-            @stream_with_context
-            def generate():
-                try:
-                    while True:
-                        chunk = proc.stdout.read(188 * 32)
-                        if not chunk:
-                            break
-                        yield chunk
-                finally:
-                    if proc.poll() is None:
-                        proc.kill()
-                    P.logger.info("[재생 종료] YouTube 중계 종료")
-
-            return Response(generate(), mimetype="video/MP2T")
-
-        else:
+        # ==========================================
+        # 1. 로컬 파일: 100% 순정 코드 (건드리지 않음)
+        # ==========================================
+        if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
-            
-            P.logger.info(f"[재생 시작] 로컬 파일: {full_path}")
+            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트: {full_path}")
             return send_file(full_path, conditional=True)
             
+        # ==========================================
+        # 2. YouTube 수동 해상도 매칭
+        # ==========================================
+        P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
+        try:
+            import yt_dlp
+            
+            # yt-dlp의 자동 선택을 무시하고, 정보만 모두 긁어옵니다.
+            ydl_opts = {'quiet': True, 'noplaylist': True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(full_path, download=False)
+                is_live = info.get('is_live', False)
+                formats = info.get('formats', [])
+                
+                headers = info.get('http_headers', {})
+                if headers and 'User-Agent' in headers:
+                    user_agent = headers['User-Agent']
+                    
+                cmd = []
+                mimetype = "video/mp4"
+                
+                if is_live:
+                    stream_url = info.get('url') or info.get('manifest_url')
+                    P.logger.info(f"[재생 시작] YouTube 라이브 방송 TS 중계 가동")
+                    mimetype = "video/MP2T"
+                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                    cmd.extend(["-user_agent", user_agent, "-i", stream_url])
+                    cmd.extend(["-map", "0:v:0?", "-map", "0:a:0?"])
+                    cmd.extend(["-c:v", "copy", "-c:a", "copy", "-muxdelay", "0", "-f", "mpegts", "-"])
+                else:
+                    # 🌟 [족집게 추출 로직] 사용자가 설정한 해상도를 계산
+                    max_height = 1080
+                    if quality.endswith('p') and quality[:-1].isdigit():
+                        max_height = int(quality[:-1])
+                    elif quality == "자동":
+                        max_height = 2160
+                        
+                    # 비디오+오디오 합본과 분리본을 직접 분류
+                    merged = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and (f.get('height') or 0) <= max_height]
+                    v_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') == 'none' and (f.get('height') or 0) <= max_height]
+                    a_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
+                    
+                    # 720p 이하는 앞뒤 탐색을 위해 302 리다이렉트 (합본 사용)
+                    if max_height <= 720 and merged:
+                        best_merged = sorted(merged, key=lambda x: ((x.get('height') or 0), (x.get('tbr') or 0)))[-1]
+                        P.logger.info(f"[재생 시작] YouTube VOD 다이렉트 리다이렉트 ({best_merged.get('height')}p)")
+                        return redirect(best_merged.get('url'), code=302)
+                    
+                    # 1080p 이상은 분리된 초고화질 스트림을 MKV로 합쳐서 전송
+                    else:
+                        if v_formats and a_formats:
+                            best_v = sorted(v_formats, key=lambda x: ((x.get('height') or 0), (x.get('tbr') or 0)))[-1]
+                            best_a = sorted(a_formats, key=lambda x: (x.get('tbr') or 0))[-1]
+                            
+                            P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 중계 ({best_v.get('height')}p)")
+                            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                            cmd.extend(["-user_agent", user_agent])
+                            cmd.extend([
+                                "-i", best_v.get('url'),
+                                "-i", best_a.get('url'),
+                                "-map", "0:v:0", "-map", "1:a:0",
+                                "-c:v", "copy", "-c:a", "copy",
+                                "-f", "matroska", "-"
+                            ])
+                            mimetype = "video/x-matroska"
+                        
+                        # 예외: 분리본이 없으면 합본으로 폴백
+                        elif merged:
+                            best_merged = sorted(merged, key=lambda x: ((x.get('height') or 0), (x.get('tbr') or 0)))[-1]
+                            P.logger.info(f"[재생 시작] YouTube VOD 다이렉트 리다이렉트 폴백 ({best_merged.get('height')}p)")
+                            return redirect(best_merged.get('url'), code=302)
+                        else:
+                            P.logger.error("[재생 실패] 조건에 맞는 스트림을 찾을 수 없습니다.")
+                            return Response("스트림 주소 추출 실패", status=500)
+                            
+        except Exception as e:
+            P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
+            P.logger.error(traceback.format_exc())
+            return Response(f"유튜브 에러: {e}", status=500)
+        
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        
+        @stream_with_context
+        def generate():
+            try:
+                while True:
+                    chunk = proc.stdout.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                P.logger.info("[재생 종료] YouTube 스트림 연결 해제")
+
+        return Response(generate(), mimetype=mimetype)
+
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
         P.logger.error(traceback.format_exc())
