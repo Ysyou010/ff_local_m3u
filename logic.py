@@ -143,15 +143,18 @@ def play_ffmpeg_copy(encoded_name):
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
         if full_path.startswith("http://") or full_path.startswith("https://"):
-            P.logger.info(f"[재생 요청] YouTube: {full_path} (화질: {quality})")
+            P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
             try:
                 import yt_dlp
                 
-                # 🌟 [수정 포인트] 1080p가 제대로 렌더링되도록 MP4(H.264) 및 M4A 포맷을 명시적으로 요구합니다.
-                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
-                if quality.endswith('p') and quality[:-1].isdigit():
+                # 🌟 [화질 마스터] MP4 제한을 해제하여 1080p VP9 포맷을 온전히 가져옵니다.
+                if quality == "자동":
+                    format_str = 'bestvideo+bestaudio/best'
+                elif quality.endswith('p') and quality[:-1].isdigit():
                     max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best'
+                    format_str = f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best'
+                else:
+                    format_str = 'best'
                     
                 ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
                 
@@ -161,9 +164,9 @@ def play_ffmpeg_copy(encoded_name):
                     is_live = info.get('is_live', False)
                     req_formats = info.get('requested_formats')
                     
-                    # 🌟 Case 1: 비디오와 오디오가 분리된 고화질(1080p 등) VOD일 때 (FFmpeg 복합 프록시 가동)
+                    # 🌟 Case 1: 비디오와 오디오가 분리된 고화질 VOD -> 만능 MKV 컨테이너로 병합
                     if req_formats and len(req_formats) == 2 and not is_live:
-                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD 복합 스트림 프록시 중계 ({quality})")
+                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 복합 스트림 프록시 ({quality})")
                         video_url = req_formats[0].get('url')
                         audio_url = req_formats[1].get('url')
                         
@@ -178,12 +181,11 @@ def play_ffmpeg_copy(encoded_name):
                             "-i", audio_url,
                             "-map", "0:v:0", "-map", "1:a:0",
                             "-c:v", "copy", "-c:a", "copy",
-                            "-bsf:v", "h264_mp4toannexb",  # 🌟 1080p H.264 화면 출력을 위한 필수 비트스트림 필터
-                            "-fflags", "+genpts",          # 🌟 싱크 유지 플래그
-                            "-muxdelay", "0", "-f", "mpegts", "-"
+                            "-f", "matroska", "-"  # 🌟 H.264 강제 필터를 빼고 MKV(Matroska) 출력으로 변경!
                         ])
+                        mimetype = "video/x-matroska"
                     
-                    # 🌟 Case 2: 라이브 방송이거나 단일 스트림(720p 이하)일 때
+                    # 🌟 Case 2: 라이브 방송이거나 이미 합쳐진 단일 스트림일 때
                     else:
                         if not stream_url:
                             P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
@@ -194,21 +196,21 @@ def play_ffmpeg_copy(encoded_name):
                             user_agent = headers['User-Agent']
                             
                         if not is_live:
-                            # 720p 이하 단일 스트림은 플레이어가 직접 붙도록 리다이렉트 (앞뒤 탐색 지원)
-                            P.logger.info(f"[재생 시작] YouTube 저화질 단일 스트림 VOD 리다이렉트 (탐색 활성화): {full_path}")
+                            # 720p 이하 합본은 플레이어가 직접 붙도록 리다이렉트 (앞뒤 탐색 완벽 지원)
+                            P.logger.info(f"[재생 시작] YouTube 단일 스트림 VOD 다이렉트 리다이렉트 (탐색 지원)")
                             return redirect(stream_url, code=302)
                         
                         # 라이브 방송 중계
-                        P.logger.info(f"[재생 시작] YouTube 라이브 프록시 중계 가동: {full_path}")
+                        P.logger.info(f"[재생 시작] YouTube 라이브 방송 TS 중계 가동")
                         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                         cmd.extend(["-user_agent", user_agent])
                         cmd.extend([
                             "-i", stream_url,
                             "-map", "0:v:0?", "-map", "0:a:0?",
                             "-c:v", "copy", "-c:a", "copy",
-                            "-bsf:v", "h264_mp4toannexb",  # 🌟 라이브 방송 시에도 블랙스크린 방지 필터 적용
-                            "-muxdelay", "0", "-f", "mpegts", "-"
+                            "-f", "mpegts", "-"
                         ])
+                        mimetype = "video/MP2T"
                         
             except Exception as e:
                 P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
@@ -220,7 +222,8 @@ def play_ffmpeg_copy(encoded_name):
             def generate():
                 try:
                     while True:
-                        chunk = proc.stdout.read(188 * 32)
+                        # MKV와 TS 모두 원활하게 전송되도록 청크 사이즈 최적화
+                        chunk = proc.stdout.read(65536)
                         if not chunk:
                             break
                         yield chunk
@@ -229,7 +232,7 @@ def play_ffmpeg_copy(encoded_name):
                         proc.kill()
                     P.logger.info("[재생 종료] YouTube 스트림 연결 해제")
 
-            return Response(generate(), mimetype="video/MP2T")
+            return Response(generate(), mimetype=mimetype)
 
         else:
             if not os.path.isfile(full_path):
