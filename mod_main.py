@@ -10,6 +10,7 @@ class ModuleMain(PluginModuleBase):
             f"{self.name}_db_version": "1",
             "media_path": "",
             "extensions": ".mp4,.mkv,.avi,.ts",
+            "category_list": "", 
         }
 
     def plugin_load(self):
