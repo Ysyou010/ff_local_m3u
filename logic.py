@@ -125,17 +125,54 @@ def make_m3u(req):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
             
-            # 🌟 안드로이드가 MKV 컨테이너를 정확히 파싱하도록 확장자를 변경합니다.
             ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mkv'
             play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = item['title']
-            lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n{play_url}\n')
+
+            # 🌟 [자막 로직 추가] 영상과 동일한 이름의 .srt 파일이 있는지 확인
+            sub_url = ""
+            if not item['path'].startswith('http'):
+                base_path = os.path.splitext(item['path'])[0]
+                srt_path = base_path + ".srt"
+                
+                if os.path.isfile(srt_path):
+                    # 자막 파일이 존재하면 자막용 전송 API 주소를 생성합니다.
+                    encoded_sub = _safe_b64encode(srt_path)
+                    sub_url = get_api_url(req, "subtitle", {"file": encoded_sub, "ext": ".srt"})
+
+            # 🌟 자막 파일 존재 여부에 따라 M3U 작성 분기
+            if sub_url:
+                # 안드로이드 앱을 위한 subtitle 속성 추가
+                lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}" subtitle="{sub_url}",{display_name}\n')
+                # 팟플레이어를 위한 vlc 옵션 추가
+                lines.append(f'#EXTVLCOPT:sub-file={sub_url}\n')
+                lines.append(f'{play_url}\n')
+            else:
+                # 자막이 없을 때 기존 오리지널 방식
+                lines.append(f'#EXTINF:-1 tvg-name="{display_name}" tvg-chno="{index}",{display_name}\n')
+                lines.append(f'{play_url}\n')
             
         return Response("".join(lines), content_type="audio/mpegurl; charset=utf-8")
     except Exception as e:
         P.logger.error(traceback.format_exc())
         return Response(f"make_m3u 에러: {str(e)}", status=500)
+
+# 🌟 [새로 추가할 함수] 플레이어가 자막을 요청할 때 .srt 파일을 전송해 줍니다.
+def play_subtitle(encoded_name):
+    try:
+        full_path = _safe_b64decode(encoded_name)
+        if not os.path.isfile(full_path):
+            P.logger.error(f"[자막 실패] 파일 없음: {full_path}")
+            return Response("Subtitle not found", status=404)
+            
+        P.logger.info(f"[자막 전송] {full_path}")
+        # SRT 자막은 일반 텍스트 형태로 전송
+        return send_file(full_path, mimetype="text/plain", conditional=True)
+        
+    except Exception as e:
+        P.logger.error(f"[자막 에러] {str(e)}")
+        return Response("Subtitle Error", status=500)
 
 def play_ffmpeg_copy(encoded_name):
     try:
