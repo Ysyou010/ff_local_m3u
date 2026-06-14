@@ -147,20 +147,21 @@ def play_ffmpeg_copy(encoded_name):
             try:
                 import yt_dlp
                 
-                # 🌟 고화질 실시간 합성 처리를 위해 비디오와 오디오 분리형 포맷 스트링 조립
-                format_str = 'bestvideo+bestaudio/best'
+                # 🌟 [수정 포인트] 1080p가 제대로 렌더링되도록 MP4(H.264) 및 M4A 포맷을 명시적으로 요구합니다.
+                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
                 if quality.endswith('p') and quality[:-1].isdigit():
                     max_height = quality[:-1]
-                    format_str = f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]'
+                    format_str = f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best'
                     
                 ydl_opts = {'format': format_str, 'quiet': True, 'noplaylist': True}
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(full_path, download=False)
+                    stream_url = info.get('url') or info.get('manifest_url')
                     is_live = info.get('is_live', False)
                     req_formats = info.get('requested_formats')
                     
-                    # 🌟 Case 1: 비디오와 오디오 주소가 완전히 분리된 진짜 고화질 VOD일 때 (FFmpeg 복합 프록시 가동)
+                    # 🌟 Case 1: 비디오와 오디오가 분리된 고화질(1080p 등) VOD일 때 (FFmpeg 복합 프록시 가동)
                     if req_formats and len(req_formats) == 2 and not is_live:
                         P.logger.info(f"[재생 시작] YouTube 고화질 VOD 복합 스트림 프록시 중계 ({quality})")
                         video_url = req_formats[0].get('url')
@@ -177,41 +178,42 @@ def play_ffmpeg_copy(encoded_name):
                             "-i", audio_url,
                             "-map", "0:v:0", "-map", "1:a:0",
                             "-c:v", "copy", "-c:a", "copy",
+                            "-bsf:v", "h264_mp4toannexb",  # 🌟 1080p H.264 화면 출력을 위한 필수 비트스트림 필터
+                            "-fflags", "+genpts",          # 🌟 싱크 유지 플래그
                             "-muxdelay", "0", "-f", "mpegts", "-"
                         ])
                     
-                    # 🌟 Case 2: 라이브 방송이거나 분리가 안 된 단일 스트림 저화질일 때
+                    # 🌟 Case 2: 라이브 방송이거나 단일 스트림(720p 이하)일 때
                     else:
-                        stream_url = info.get('url') or info.get('manifest_url')
                         if not stream_url:
-                            return Response("스트림 주소 추출 실패", status=500)
+                            P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
+                            return Response("유튜브 스트림 추출 실패", status=500)
                             
                         headers = info.get('http_headers', {})
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
                             
                         if not is_live:
-                            # 360p 이하의 단일 스트림은 부드러운 구간 탐색을 위해 302 리다이렉트 처리
-                            P.logger.info(f"[재생 시작] YouTube 저화질 단일 스트림 VOD 리다이렉트")
+                            # 720p 이하 단일 스트림은 플레이어가 직접 붙도록 리다이렉트 (앞뒤 탐색 지원)
+                            P.logger.info(f"[재생 시작] YouTube 저화질 단일 스트림 VOD 리다이렉트 (탐색 활성화): {full_path}")
                             return redirect(stream_url, code=302)
                         
-                        # 라이브 방송은 단일 HLS 스트림을 실시간 TS 규격 중계
-                        P.logger.info(f"[재생 시작] YouTube 라이브 스트림 프록시 중계")
+                        # 라이브 방송 중계
+                        P.logger.info(f"[재생 시작] YouTube 라이브 프록시 중계 가동: {full_path}")
                         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                         cmd.extend(["-user_agent", user_agent])
                         cmd.extend([
                             "-i", stream_url,
                             "-map", "0:v:0?", "-map", "0:a:0?",
                             "-c:v", "copy", "-c:a", "copy",
+                            "-bsf:v", "h264_mp4toannexb",  # 🌟 라이브 방송 시에도 블랙스크린 방지 필터 적용
                             "-muxdelay", "0", "-f", "mpegts", "-"
                         ])
                         
             except Exception as e:
                 P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-                P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
             
-            # 실시간 FFmpeg 덤프 데이터 인코딩 스트리밍 출력
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
             
             @stream_with_context
@@ -225,7 +227,7 @@ def play_ffmpeg_copy(encoded_name):
                 finally:
                     if proc.poll() is None:
                         proc.kill()
-                    P.logger.info("[재생 종료] YouTube 중계 종료")
+                    P.logger.info("[재생 종료] YouTube 스트림 연결 해제")
 
             return Response(generate(), mimetype="video/MP2T")
 
@@ -239,5 +241,4 @@ def play_ffmpeg_copy(encoded_name):
             
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
-        P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
