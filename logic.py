@@ -134,13 +134,21 @@ def make_m3u(req):
             sub_url = ""
             if not item['path'].startswith('http'):
                 base_path = os.path.splitext(item['path'])[0]
-                srt_path = base_path + ".srt"
                 
-                if os.path.isfile(srt_path):
-                    # 자막 파일이 존재하면 자막용 전송 API 주소를 생성합니다.
-                    encoded_sub = _safe_b64encode(srt_path)
-                    sub_url = get_api_url(req, "subtitle", {"file": encoded_sub, "ext": ".srt"})
-
+                # 🌟 서버가 찾아볼 자막 이름 후보들 (우선순위 순)
+                possible_srts = [
+                    base_path + ".srt",      # 예: 가족여행.srt
+                    base_path + ".ko.srt",   # 예: 가족여행.ko.srt
+                    base_path + ".kr.srt",   # 예: 가족여행.kr.srt
+                    base_path + ".kor.srt"   # 예: 가족여행.kor.srt
+                ]
+                
+                # 후보들을 하나씩 뒤져서 파일이 있으면 바로 주소를 만듭니다.
+                for srt_path in possible_srts:
+                    if os.path.isfile(srt_path):
+                        encoded_sub = _safe_b64encode(srt_path)
+                        sub_url = get_api_url(req, "subtitle", {"file": encoded_sub, "ext": ".srt"})
+                        break # 자막을 하나 찾았으면 더 찾지 않고 멈춤
             # 🌟 자막 파일 존재 여부에 따라 M3U 작성 분기
             if sub_url:
                 # 안드로이드 앱을 위한 subtitle 속성 추가
