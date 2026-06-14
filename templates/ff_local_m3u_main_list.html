@@ -8,7 +8,6 @@
 
 {% block content %}
 <style type="text/css">
-  /* 플레이어 둥근 테두리 및 그림자 등 UI 다듬기 */
   .player-container {
     background-color: #000;
     border-radius: 8px;
@@ -42,12 +41,18 @@
   {{ macros.m_tab_content_end() }}
 </div>
 
+<form name="playform">
+    <input type="hidden" id="play_title" name="play_title">
+    <input type="hidden" id="play_source_src" name="play_source_src">
+    <input type="hidden" id="play_source_type" name="play_source_type">
+</form>
+
 <script type="text/javascript">
 var current_data = [];
 var categories = [];
 var current_category = "전체";
 
-// 🌟 Video.js 플레이어 초기화
+// Video.js 플레이어 초기화
 let options = {
   html5: { nativeTextTracks: false },
   controls: true,
@@ -59,9 +64,8 @@ let options = {
   }
 };
 const player = videojs('vid1', options);
-var nowPlaying; // 현재 재생중인 버튼 요소를 추적
+var nowPlaying; 
 
-// 플레이어 재생/일시정지 상태에 따라 리스트의 버튼 아이콘 변경
 player.on("pause", () => {
   if (nowPlaying) nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');
 });
@@ -164,38 +168,64 @@ function make_list() {
     $('#list_div').html(html);
 }
 
-// 🌟 웹 내장 플레이어 연동 로직
+// 스마트 재생 버튼 클릭 이벤트
 $("body").on('click', '.play_btn', function(e){
     e.preventDefault();
     let wantPlay = $(this);
-    
-    // 이미 같은 영상을 누른 경우 재생/일시정지 토글 처리
-    if (wantPlay.is(nowPlaying)) {
-        if (player.paused()) { player.play(); } else { player.pause(); }
-        return;
-    }
-    
     var url = wantPlay.data('url');
     var name = wantPlay.data('name');
     
-    // 기존 버튼 아이콘 초기화 및 현재 버튼 아이콘 변경
-    if (nowPlaying) {
-        nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');
+    // 🌟 [핵심] 주소 확장자를 판별하여 브라우저 지원 여부 확인
+    var isMp4 = url.indexOf("ext=.mp4") !== -1;
+    
+    if (isMp4) {
+        // ----------------------------------------------------
+        // 모드 1: 로컬 MP4 파일 -> 상단 내장 웹플레이어로 즉시 재생
+        // ----------------------------------------------------
+        if (wantPlay.is(nowPlaying)) {
+            if (player.paused()) { player.play(); } else { player.pause(); }
+            return;
+        }
+        
+        if (nowPlaying) {
+            nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');
+        }
+        wantPlay.find('i.fa').removeClass('fa-play').addClass('fa-pause');
+        nowPlaying = wantPlay;
+        
+        $('#play_info').text("▶ 웹 내장 재생 중: " + name);
+        
+        player.src({ src: url, type: 'video/mp4' }); // 브라우저용 타입 명시
+        player.play().catch(function(error) {
+            notify('자동 재생이 차단되었습니다. 플레이어의 재생 버튼을 눌러주세요.', 'warning');
+        });
+        
+        window.scrollTo({top: 0, behavior: 'smooth'});
+    } else {
+        // ----------------------------------------------------
+        // 모드 2: 유튜브 1080p(MKV) / 라이브(TS) -> 외부 시스템 팝업으로 안전하게 우회
+        // ----------------------------------------------------
+        if (nowPlaying) {
+            nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');
+        }
+        player.pause(); // 내장 플레이어는 정지
+        nowPlaying = null;
+        
+        $('#play_info').text("🎬 외부 팝업 플레이어로 재생: " + name);
+        
+        var form = document.playform;
+        var popupWidth = 980;
+        var leftPos = screen.width - popupWidth;
+        
+        window.open('', 'play_popup', "location=no, directories=no,resizable=no,status=no,toolbar=no,menubar=no,width=" + popupWidth + ", height=560, top=100, left=" + leftPos);
+        form.action = "/videojs";
+        form.method = "post";
+        form.target = 'play_popup'; 
+        $('#play_title').val(name);
+        $('#play_source_src').val(url);
+        $('#play_source_type').val('video/mp2t'); 
+        form.submit();
     }
-    wantPlay.find('i.fa').removeClass('fa-play').addClass('fa-pause');
-    nowPlaying = wantPlay;
-    
-    // 플레이어 정보 업데이트 및 소스 장착
-    $('#play_info').text("▶ 재생 중: " + name);
-    
-    // Video.js 소스 교체 및 재생
-    player.src({ src: url });
-    player.play().catch(function(error) {
-        notify('브라우저 정책으로 인해 자동 재생이 차단되었습니다. 플레이어의 재생 버튼을 직접 눌러주세요.', 'warning');
-    });
-    
-    // 시선을 플레이어로 이동시키기 위해 부드럽게 화면 최상단으로 스크롤
-    window.scrollTo({top: 0, behavior: 'smooth'});
 });
 
 // 주소 복사 버튼 기능
