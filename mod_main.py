@@ -61,6 +61,17 @@ class ModuleMain(PluginModuleBase):
                 if ret is None:
                     return Response("play_ffmpeg_copy 반환값 없음", status=500)
                 return ret
+            
+            # 🌟 [추가된 부분] 자막 요청(subtitle)이 들어오면 logic.play_subtitle로 연결해 줍니다.
+            if sub == "subtitle":
+                encoded_name = req.args.get("file")
+                if not encoded_name:
+                    return Response("자막 파일 파라미터 없음", status=400)
+                    
+                ret = logic.play_subtitle(encoded_name)
+                if ret is None:
+                    return Response("play_subtitle 반환값 없음", status=500)
+                return ret
                 
             return Response(f"알 수 없는 API 요청: {sub}", status=400)
             
