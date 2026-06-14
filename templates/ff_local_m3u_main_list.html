@@ -89,8 +89,8 @@ function make_list() {
     html += '<table class="table table-sm table-striped table-hover">';
     html += '<thead class="thead-dark"><tr>';
     html += '<th style="width:10%; text-align:center;">순번</th>';
-    html += '<th style="width:70%;">제목</th>';
-    html += '<th style="width:20%; text-align:center;">액션</th>';
+    html += '<th style="width:65%;">제목</th>';
+    html += '<th style="width:25%; text-align:center;">액션</th>'; // 버튼 공간 확보를 위해 넓이 약간 조정
     html += '</tr></thead><tbody>';
     
     var count = 0;
@@ -108,7 +108,11 @@ function make_list() {
         html += '<strong>' + item.display_title + '</strong>';
         html += '</td>';
         html += '<td style="text-align:center; vertical-align:middle;">';
+        // 🌟 버튼 2개를 깔끔하게 그룹으로 묶어서 배치했습니다.
+        html += '<div class="btn-group" role="group">';
         html += '<button class="btn btn-sm btn-outline-success play_btn" data-url="' + item.url + '" data-name="' + item.display_title + '"><i class="fa fa-play"></i> 재생</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary copy_btn" data-url="' + item.url + '"><i class="fa fa-clipboard"></i> 주소</button>';
+        html += '</div>';
         html += '</td>';
         html += '</tr>';
     }
@@ -121,6 +125,7 @@ function make_list() {
     $('#list_div').html(html);
 }
 
+// 재생 버튼 기능
 $("body").on('click', '.play_btn', function(e){
     e.preventDefault();
     var url = $(this).data('url');
@@ -137,6 +142,15 @@ $("body").on('click', '.play_btn', function(e){
     $('#play_source_src').val(url);
     $('#play_source_type').val('video/mp2t'); 
     form.submit();
+});
+
+// 🌟 주소 복사 버튼 기능 추가
+$("body").on('click', '.copy_btn', function(e){
+    e.preventDefault();
+    var url = $(this).data('url');
+    var str = url + '<br><br>';
+    str += j_button_group(j_button('globalCliboardBtn', '클립보드 복사', {'text':url}, 'success'));
+    showModal(str, '스트리밍 주소', false);
 });
 </script>
 {% endblock %}
