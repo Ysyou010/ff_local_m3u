@@ -134,7 +134,7 @@ function make_list() {
     html += '<thead class="thead-dark"><tr>';
     html += '<th style="width:10%; text-align:center;">순번</th>';
     html += '<th style="width:65%;">제목</th>';
-    html += '<th style="width:25%; text-align:center;">액션</th>';
+    html += '<th style="width:30%; text-align:center;">액션</th>
     html += '</tr></thead><tbody>';
     
     var count = 0;
@@ -154,10 +154,11 @@ function make_list() {
         html += '<td style="text-align:center; vertical-align:middle;">';
         html += '<div class="btn-group" role="group">';
         html += '<button class="btn btn-sm btn-outline-success play_btn" data-url="' + item.url + '" data-name="' + item.display_title + '"><i class="fa fa-play"></i> 재생</button>';
+        // 🌟 수정 버튼 추가 (원본 데이터 매핑)
+        html += '<button class="btn btn-sm btn-outline-warning edit_btn" data-idx="' + item.idx + '" data-category="' + item.raw_category + '" data-title="' + item.raw_title + '" data-quality="' + item.raw_quality + '" data-path="' + item.raw_path + '"><i class="fa fa-edit"></i> 수정</button>';
         html += '<button class="btn btn-sm btn-outline-secondary copy_btn" data-url="' + item.url + '"><i class="fa fa-clipboard"></i> 주소</button>';
         html += '</div>';
         html += '</td>';
-        html += '</tr>';
     }
     
     if (count === 0) {
@@ -237,4 +238,91 @@ $("body").on('click', '.copy_btn', function(e){
     showModal(str, '스트리밍 주소', false);
 });
 </script>
+<div class="modal fade" id="editModal" tabindex="-1" role="dialog" aria-labelledby="editModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title font-weight-bold" id="editModalLabel">미디어 정보 수정</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="editForm">
+          <input type="hidden" id="edit_idx">
+          <div class="form-group">
+            <label>카테고리</label>
+            <input type="text" class="form-control" id="edit_category" placeholder="예: 가족여행">
+          </div>
+          <div class="form-group">
+            <label>제목</label>
+            <input type="text" class="form-control" id="edit_title" placeholder="예: 2024년 여름휴가">
+          </div>
+          <div class="form-group">
+            <label>화질</label>
+            <input type="text" class="form-control" id="edit_quality" placeholder="예: 1080p 또는 자동">
+          </div>
+          <div class="form-group">
+            <label>경로 또는 주소</label>
+            <input type="text" class="form-control" id="edit_path" placeholder="파일 경로 또는 유튜브 주소">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary" id="save_edit_btn">저장하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript">
+// 🌟 수정 버튼 클릭 시 모달 띄우기 및 데이터 채우기
+$("body").on('click', '.edit_btn', function(e){
+    e.preventDefault();
+    $('#edit_idx').val($(this).data('idx'));
+    $('#edit_category').val($(this).data('category'));
+    $('#edit_title').val($(this).data('title'));
+    $('#edit_quality').val($(this).data('quality'));
+    $('#edit_path').val($(this).data('path'));
+    $('#editModal').modal('show');
+});
+
+// 🌟 저장하기 버튼 클릭 시 서버로 전송
+$("body").on('click', '#save_edit_btn', function(e){
+    e.preventDefault();
+    
+    var req_data = {
+        idx: $('#edit_idx').val(),
+        category: $('#edit_category').val().trim(),
+        title: $('#edit_title').val().trim(),
+        quality: $('#edit_quality').val().trim(),
+        path: $('#edit_path').val().trim()
+    };
+    
+    // 데이터를 JSON 문자열로 변환하여 서버에 전송
+    var payload = JSON.stringify(req_data);
+    
+    globalSendCommand('edit_item', payload, null, null, function(ret){
+        if(ret.ret == 'success'){
+            notify(ret.msg, 'success');
+            $('#editModal').modal('hide');
+            
+            // 수정 완료 후 목록 새로고침
+            $('#list_div').html('<div class="text-center mt-5"><i class="fa fa-spinner fa-spin fa-2x"></i> 목록을 다시 불러오는 중입니다...</div>');
+            globalSendCommand('get_list', null, null, null, function(data) {
+                if (data.ret == "success") {
+                    current_data = data.list;
+                    extractCategories(); 
+                    renderTabs();        
+                    make_list();         
+                }
+            });
+        } else {
+            notify(ret.msg, 'warning');
+        }
+    });
+});
+</script>
+
 {% endblock %}
