@@ -107,7 +107,12 @@ def get_media_list(req):
             result.append({
                 "idx": idx,
                 "name": display_name,
-                "url": play_url
+                "url": play_url,
+                # 🌟 [수정] 프론트엔드 수정창에 띄워줄 원본 데이터 추가
+                "raw_category": item['category'],
+                "raw_title": item['title'],
+                "raw_quality": item['quality'],
+                "raw_path": item['path']
             })
         return result
     except Exception as e:
