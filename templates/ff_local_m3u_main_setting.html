@@ -18,7 +18,7 @@
         <div class="form-group row mt-3">
           <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
           <div class="col-sm-9">
-            <div class="input-group mb-2" style="width: 50%;">
+            <div class="input-group mb-2" style="max-width: 400px; width: 100%;">
               <input type="text" id="manage_category_input" class="form-control" placeholder="새 카테고리명 입력">
               <div class="input-group-append">
                 <button class="btn btn-outline-primary" type="button" id="btn_add_category"><i class="fa fa-plus"></i> 추가</button>
@@ -43,25 +43,31 @@
         <div class="form-group row mt-3">
           <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
           <div class="col-sm-9">
-            <div class="d-flex mb-2">
-              <select id="new_category_select" class="form-control mr-1" style="width: 18%;"></select>
-              <input type="text" id="new_title_input" class="form-control mr-1" placeholder="제목" style="width: 20%;">
-              
-              <select id="new_quality_select" class="form-control mr-1" style="width: 15%;">
-                <option value="자동">자동 (최대)</option>
-                <option value="1080p">1080p</option>
-                <option value="720p">720p</option>
-                <option value="480p">480p</option>
-                <option value="360p">360p</option>
-                <option value="240p">240p</option>
-                <option value="144p">144p (최저)</option>
-              </select>
-              
-              <div class="input-group" style="width: 47%;">
-                <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
-                <div class="input-group-append">
-                  <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
-                  <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
+            <div class="row mb-2">
+              <div class="col-6 col-md-2 mb-2 mb-md-0 pr-1">
+                <select id="new_category_select" class="form-control" style="width: 100%;"></select>
+              </div>
+              <div class="col-6 col-md-2 mb-2 mb-md-0 px-1">
+                <select id="new_quality_select" class="form-control" style="width: 100%;">
+                  <option value="자동">자동(최대)</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="480p">480p</option>
+                  <option value="360p">360p</option>
+                  <option value="240p">240p</option>
+                  <option value="144p">144p</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-3 mb-2 mb-md-0 px-md-1">
+                <input type="text" id="new_title_input" class="form-control" placeholder="제목 (생략시 파일명)" style="width: 100%;">
+              </div>
+              <div class="col-12 col-md-5 pl-md-1">
+                <div class="input-group" style="width: 100%;">
+                  <input type="text" id="new_path_input" class="form-control" placeholder="절대경로 또는 유튜브 URL">
+                  <div class="input-group-append">
+                    <button class="btn btn-success" type="button" id="add_path_btn"><i class="fa fa-plus"></i></button>
+                    <button class="btn btn-info" type="button" id="open_explorer_btn"><i class="fa fa-folder-open"></i></button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -72,11 +78,11 @@
         <div class="form-group row">
           <label class="col-sm-3 control-label text-sm-right">등록된 리스트</label>
           <div class="col-sm-9">
-            <div class="d-flex justify-content-between align-items-end mb-2">
-              <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
+            <div class="d-flex justify-content-between align-items-center flex-wrap mb-2">
+              <select id="category_filter" class="form-control form-control-sm mb-1 mb-md-0" style="width: auto; min-width: 150px;">
                 <option value="전체">전체 카테고리</option>
               </select>
-              <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경/수정 사항은 조용히 자동 저장됩니다.</b></small>
+              <small class="text-primary mt-1 mt-md-0"><b><i class="fa fa-check-circle"></i> 변경/수정 사항은 조용히 자동 저장됩니다.</b></small>
             </div>
             <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 500px; overflow-y: auto; border-radius: 4px;"></ul>
           </div>
@@ -197,14 +203,12 @@ function renderCategoryManager() {
         selectHtml += '<option value="' + definedCategories[i] + '">' + definedCategories[i] + '</option>';
     }
     
-    // 미디어 추가의 드롭다운 동기화
     var prevSelected = $('#new_category_select').val();
     $('#new_category_select').html(selectHtml);
     if (definedCategories.indexOf(prevSelected) !== -1) {
         $('#new_category_select').val(prevSelected);
     }
     
-    // 🌟 수정 모달의 카테고리 드롭다운도 항상 동기화
     $('#edit_category').html(selectHtml);
     
     $('#category_list').val(definedCategories.join(','));
@@ -450,9 +454,6 @@ $("body").on('click', '.btn_copy_url', function(e){
     notify('M3U 주소가 복사되었습니다.', 'success');
 });
 
-// ==========================================
-// 🌟 리스트 항목 수정 전용 스크립트
-// ==========================================
 $("body").on('click', '.edit_list_btn', function(e){
     e.preventDefault();
     var idx = $(this).data('idx');
@@ -460,7 +461,6 @@ $("body").on('click', '.edit_list_btn', function(e){
     
     $('#edit_idx').val(idx);
     
-    // 🌟 카테고리 드롭다운 값 매칭 (혹시 드롭다운에 없는 카테고리라면 강제로 추가해서 보여줌)
     if ($('#edit_category option[value="' + item.category + '"]').length === 0) {
         $('#edit_category').append('<option value="' + item.category + '">' + item.category + '</option>');
     }
@@ -481,7 +481,7 @@ $("body").on('click', '.edit_list_btn', function(e){
 $("body").on('click', '#save_edit_btn', function(e){
     e.preventDefault();
     var idx = parseInt($('#edit_idx').val());
-    var newCat = $('#edit_category').val(); // 🌟 드롭다운에서 선택된 값 가져오기
+    var newCat = $('#edit_category').val(); 
     var newTitle = $('#edit_title').val().trim();
     var newQuality = $('#edit_quality').val();
     var newPath = $('#edit_path').val().trim();
@@ -495,6 +495,11 @@ $("body").on('click', '#save_edit_btn', function(e){
     pathArray[idx].title = newTitle;
     pathArray[idx].quality = newQuality;
     pathArray[idx].path = newPath;
+
+    if (definedCategories.indexOf(newCat) === -1) {
+        definedCategories.push(newCat);
+        renderCategoryManager();
+    }
 
     renderList();
     autoSaveList();
