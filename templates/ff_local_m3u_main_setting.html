@@ -15,7 +15,6 @@
     <div class="tab-content">
       
       <div class="tab-pane active in" id="setting_pane" role="tabpanel">
-        
         <div class="form-group row mt-3">
           <label class="col-sm-3 control-label text-sm-right">카테고리 관리</label>
           <div class="col-sm-9">
@@ -38,11 +37,9 @@
           <label class="col-sm-3 control-label text-sm-right">M3U API 주소</label>
           <div class="col-sm-9" id="m3u_urls_display"></div>
         </div>
-        
       </div>
       
       <div class="tab-pane fade" id="media_pane" role="tabpanel">
-        
         <div class="form-group row mt-3">
           <label class="col-sm-3 control-label text-sm-right">미디어 추가</label>
           <div class="col-sm-9">
@@ -79,7 +76,7 @@
               <select id="category_filter" class="form-control form-control-sm" style="width: auto; min-width: 150px;">
                 <option value="전체">전체 카테고리</option>
               </select>
-              <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경 사항은 조용히 자동 저장됩니다.</b></small>
+              <small class="text-primary"><b><i class="fa fa-check-circle"></i> 변경/수정 사항은 조용히 자동 저장됩니다.</b></small>
             </div>
             <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 500px; overflow-y: auto; border-radius: 4px;"></ul>
           </div>
@@ -88,6 +85,7 @@
       </div>
       
     </div>
+    
     <div style="display: none;">
       <textarea id="media_path" name="media_path">{{ arg.get('media_path', '') }}</textarea>
       <input type="hidden" id="category_list" name="category_list" value="{{ arg.get('category_list', '기본,영화,유튜브,드라마') }}">
@@ -95,6 +93,54 @@
     
   </form>
 </div>
+
+<div class="modal fade" id="editModal" tabindex="-1" role="dialog" aria-labelledby="editModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title font-weight-bold" id="editModalLabel">등록된 미디어 수정</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="editForm">
+          <input type="hidden" id="edit_idx">
+          <div class="form-group">
+            <label>카테고리</label>
+            <input type="text" class="form-control" id="edit_category" placeholder="예: 가족여행">
+            <small class="form-text text-muted">새로운 카테고리 이름을 입력하면 자동으로 카테고리가 생성됩니다.</small>
+          </div>
+          <div class="form-group">
+            <label>제목</label>
+            <input type="text" class="form-control" id="edit_title" placeholder="예: 2024년 여름휴가">
+          </div>
+          <div class="form-group">
+            <label>화질</label>
+            <select id="edit_quality" class="form-control">
+                <option value="자동">자동 (최대)</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="480p">480p</option>
+                <option value="360p">360p</option>
+                <option value="240p">240p</option>
+                <option value="144p">144p (최저)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>경로 또는 주소</label>
+            <input type="text" class="form-control" id="edit_path" placeholder="파일 경로 또는 유튜브 주소">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary" id="save_edit_btn"><i class="fa fa-save"></i> 즉시 저장하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <script type="text/javascript">
 var pathArray = [];
@@ -237,6 +283,9 @@ function renderList() {
             html += '</div>';
             
             html += '<div class="btn-group btn-group-sm" role="group">';
+            // 🌟 편집 버튼을 가장 앞에 배치합니다.
+            html += '<button class="btn btn-outline-warning edit_list_btn" data-idx="' + absIdx + '" title="수정"><i class="fa fa-edit"></i> 수정</button>';
+
             var upDisabled = (v === 0) ? 'disabled' : '';
             var targetUpIdx = (v > 0) ? visibleIndices[v - 1] : -1;
             html += '<button class="btn btn-outline-secondary move_btn" data-idx="' + absIdx + '" data-target="' + targetUpIdx + '" ' + upDisabled + ' title="위로"><i class="fa fa-arrow-up"></i></button>';
@@ -326,14 +375,11 @@ $(document).ready(function(){
     }
     renderList();
 
-    // 🌟 SJVA의 내장 버전에 상관없이 완전히 완벽하게 작동하는 수동 탭 제어 스크립트 추가
     $('.nav-tabs a').on('click', function (e) {
         e.preventDefault();
-        // 상단 버튼 액티브 처리
         $('.nav-tabs li').removeClass('active');
         $(this).parent('li').addClass('active');
         
-        // 하단 내용 패널 액티브 및 페이드인 전환 처리
         var targetPane = $(this).attr('href');
         $('.tab-pane').removeClass('active in show');
         $(targetPane).addClass('active in show');
@@ -399,6 +445,61 @@ $("body").on('click', '.btn_copy_url', function(e){
     var text = $(this).data('clipboard-text');
     var t = document.createElement("textarea"); document.body.appendChild(t); t.value = text; t.select(); document.execCommand('copy'); document.body.removeChild(t);
     notify('M3U 주소가 복사되었습니다.', 'success');
+});
+
+// ==========================================
+// 🌟 리스트 항목 수정 전용 스크립트 추가
+// ==========================================
+$("body").on('click', '.edit_list_btn', function(e){
+    e.preventDefault();
+    var idx = $(this).data('idx');
+    var item = pathArray[idx]; // 데이터 원본 배열에서 가져오기
+    
+    $('#edit_idx').val(idx);
+    $('#edit_category').val(item.category);
+    $('#edit_title').val(item.title);
+    
+    // 화질 select 박스 값 맞추기 (없으면 기본값)
+    if ($('#edit_quality option[value="' + item.quality + '"]').length > 0) {
+        $('#edit_quality').val(item.quality);
+    } else {
+        $('#edit_quality').val('자동');
+    }
+    
+    $('#edit_path').val(item.path);
+    $('#editModal').modal('show');
+});
+
+$("body").on('click', '#save_edit_btn', function(e){
+    e.preventDefault();
+    var idx = parseInt($('#edit_idx').val());
+    var newCat = $('#edit_category').val().trim() || '기본';
+    var newTitle = $('#edit_title').val().trim();
+    var newQuality = $('#edit_quality').val();
+    var newPath = $('#edit_path').val().trim();
+
+    if (newPath === '') { 
+        notify('경로를 입력하세요.', 'warning'); 
+        return; 
+    }
+
+    // 로컬 데이터 배열 즉시 업데이트
+    pathArray[idx].category = newCat;
+    pathArray[idx].title = newTitle;
+    pathArray[idx].quality = newQuality;
+    pathArray[idx].path = newPath;
+
+    // 만약 완전히 새로운 카테고리를 직접 입력했다면, 카테고리 뱃지 목록에도 즉시 추가
+    if (definedCategories.indexOf(newCat) === -1) {
+        definedCategories.push(newCat);
+        renderCategoryManager();
+    }
+
+    renderList();      // 화면 새로 그리기
+    autoSaveList();    // 서버에 자동 조용히 저장
+
+    $('#editModal').modal('hide');
+    notify('수정되었습니다.', 'success');
 });
 </script>
 {% endblock %}
