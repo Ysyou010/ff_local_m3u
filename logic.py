@@ -186,17 +186,29 @@ def play_ffmpeg_copy(encoded_name):
         try:
             import yt_dlp
             
-            # 🌟 [최신 매뉴얼 적용] 강제 문자열 대신 yt-dlp의 기본 최고 화질 탐색(bv*+ba/b)을 사용
             ydl_opts = {
-                'format': 'bv*+ba/b',
                 'quiet': True, 
                 'noplaylist': True
             }
             
-            # 🌟 [최신 매뉴얼 적용] '자동'이 아닐 경우, format_sort(-S) 옵션으로 상한선 해상도를 똑똑하게 지정
-            if quality != "자동" and quality.endswith('p') and quality[:-1].isdigit():
+            # 🌟 [구간 탐색 활성화 핵심 로직] 화질별로 스트림 요청 방식을 분리합니다.
+            if quality in ["720p", "480p", "360p", "240p", "144p"]:
+                # 720p 이하는 '이미 화면+소리가 합쳐진 단일 파일(b)'을 가져옵니다.
+                # FFmpeg 병합을 거치지 않고 주소만 바로 넘기므로 ExoPlayer에서 앞뒤 탐색이 100% 가능해집니다.
+                ydl_opts['format'] = 'b'
                 max_height = quality[:-1]
                 ydl_opts['format_sort'] = [f'res:{max_height}']
+                
+            else:
+                # 1080p 또는 '자동(최대화질)'은 유튜브가 화면/소리를 분리하므로 실시간 병합(bv*+ba/b)을 사용합니다.
+                # 이 경우 플레이어에서 생방송처럼 인식되어 구간 탐색이 불가능합니다.
+                ydl_opts['format'] = 'bv*+ba/b'
+                if quality != "자동" and quality.endswith('p') and quality[:-1].isdigit():
+                    max_height = quality[:-1]
+                    ydl_opts['format_sort'] = [f'res:{max_height}']
+                
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(full_path, download=False)
                 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(full_path, download=False)
