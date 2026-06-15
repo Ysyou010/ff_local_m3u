@@ -1,4 +1,5 @@
 import traceback
+import json
 from flask import Response, request, jsonify, render_template
 from .setup import *
 from . import logic
@@ -38,6 +39,15 @@ class ModuleMain(PluginModuleBase):
             if command == "get_list":
                 list_data = logic.get_media_list(req)
                 return jsonify({"ret": "success", "list": list_data})
+            
+            # 🌟 [추가] 리스트 수정 저장 명령어 처리
+            if command == "edit_item":
+                data = json.loads(arg1)
+                ret = logic.edit_media_item(int(data['idx']), data['category'], data['title'], data['quality'], data['path'])
+                if ret:
+                    return jsonify({"ret": "success", "msg": "수정되었습니다."})
+                else:
+                    return jsonify({"ret": "error", "msg": "저장에 실패했습니다."})
             
             return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
                 
