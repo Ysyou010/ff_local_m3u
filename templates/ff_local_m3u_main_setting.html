@@ -108,8 +108,8 @@
           <input type="hidden" id="edit_idx">
           <div class="form-group">
             <label>카테고리</label>
-            <input type="text" class="form-control" id="edit_category" placeholder="예: 가족여행">
-            <small class="form-text text-muted">새로운 카테고리 이름을 입력하면 자동으로 카테고리가 생성됩니다.</small>
+            <select id="edit_category" class="form-control"></select>
+            <small class="form-text text-muted">새 카테고리 추가는 위쪽 [설정] 탭의 카테고리 관리에서 할 수 있습니다.</small>
           </div>
           <div class="form-group">
             <label>제목</label>
@@ -165,7 +165,6 @@ function autoSaveList() {
     });
 }
 
-// 확장자 변경 시 자동 저장
 $("body").on('change', '#extensions', function() { autoSaveList(); });
 
 function initCategoryManager() {
@@ -197,11 +196,16 @@ function renderCategoryManager() {
     for (var i = 0; i < definedCategories.length; i++) {
         selectHtml += '<option value="' + definedCategories[i] + '">' + definedCategories[i] + '</option>';
     }
+    
+    // 미디어 추가의 드롭다운 동기화
     var prevSelected = $('#new_category_select').val();
     $('#new_category_select').html(selectHtml);
     if (definedCategories.indexOf(prevSelected) !== -1) {
         $('#new_category_select').val(prevSelected);
     }
+    
+    // 🌟 수정 모달의 카테고리 드롭다운도 항상 동기화
+    $('#edit_category').html(selectHtml);
     
     $('#category_list').val(definedCategories.join(','));
 }
@@ -283,7 +287,6 @@ function renderList() {
             html += '</div>';
             
             html += '<div class="btn-group btn-group-sm" role="group">';
-            // 🌟 편집 버튼을 가장 앞에 배치합니다.
             html += '<button class="btn btn-outline-warning edit_list_btn" data-idx="' + absIdx + '" title="수정"><i class="fa fa-edit"></i> 수정</button>';
 
             var upDisabled = (v === 0) ? 'disabled' : '';
@@ -448,18 +451,23 @@ $("body").on('click', '.btn_copy_url', function(e){
 });
 
 // ==========================================
-// 🌟 리스트 항목 수정 전용 스크립트 추가
+// 🌟 리스트 항목 수정 전용 스크립트
 // ==========================================
 $("body").on('click', '.edit_list_btn', function(e){
     e.preventDefault();
     var idx = $(this).data('idx');
-    var item = pathArray[idx]; // 데이터 원본 배열에서 가져오기
+    var item = pathArray[idx];
     
     $('#edit_idx').val(idx);
+    
+    // 🌟 카테고리 드롭다운 값 매칭 (혹시 드롭다운에 없는 카테고리라면 강제로 추가해서 보여줌)
+    if ($('#edit_category option[value="' + item.category + '"]').length === 0) {
+        $('#edit_category').append('<option value="' + item.category + '">' + item.category + '</option>');
+    }
     $('#edit_category').val(item.category);
+    
     $('#edit_title').val(item.title);
     
-    // 화질 select 박스 값 맞추기 (없으면 기본값)
     if ($('#edit_quality option[value="' + item.quality + '"]').length > 0) {
         $('#edit_quality').val(item.quality);
     } else {
@@ -473,7 +481,7 @@ $("body").on('click', '.edit_list_btn', function(e){
 $("body").on('click', '#save_edit_btn', function(e){
     e.preventDefault();
     var idx = parseInt($('#edit_idx').val());
-    var newCat = $('#edit_category').val().trim() || '기본';
+    var newCat = $('#edit_category').val(); // 🌟 드롭다운에서 선택된 값 가져오기
     var newTitle = $('#edit_title').val().trim();
     var newQuality = $('#edit_quality').val();
     var newPath = $('#edit_path').val().trim();
@@ -483,20 +491,13 @@ $("body").on('click', '#save_edit_btn', function(e){
         return; 
     }
 
-    // 로컬 데이터 배열 즉시 업데이트
     pathArray[idx].category = newCat;
     pathArray[idx].title = newTitle;
     pathArray[idx].quality = newQuality;
     pathArray[idx].path = newPath;
 
-    // 만약 완전히 새로운 카테고리를 직접 입력했다면, 카테고리 뱃지 목록에도 즉시 추가
-    if (definedCategories.indexOf(newCat) === -1) {
-        definedCategories.push(newCat);
-        renderCategoryManager();
-    }
-
-    renderList();      // 화면 새로 그리기
-    autoSaveList();    // 서버에 자동 조용히 저장
+    renderList();
+    autoSaveList();
 
     $('#editModal').modal('hide');
     notify('수정되었습니다.', 'success');
