@@ -288,3 +288,25 @@ def play_subtitle(encoded_name):
     except Exception as e:
         P.logger.error(f"[자막 에러] {str(e)}")
         return Response("Subtitle Error", status=500)
+
+# 🌟 [추가] 프론트엔드에서 넘어온 수정 데이터를 DB에 반영하는 함수
+def edit_media_item(idx, category, title, quality, path):
+    try:
+        media_path_raw = P.ModelSetting.get("media_path")
+        lines = media_path_raw.split('\n')
+        
+        non_empty_count = 0
+        for i, line in enumerate(lines):
+            if line.strip():  # 빈 줄은 건너뛰고 카운트
+                non_empty_count += 1
+                if non_empty_count == idx:
+                    # 해당 순번의 줄을 새로운 규격으로 덮어씁니다
+                    lines[i] = f"{category} | {title} | {quality} | {path}"
+                    break
+                    
+        new_media_path = "\n".join(lines)
+        P.ModelSetting.set("media_path", new_media_path)
+        return True
+    except Exception as e:
+        P.logger.error(traceback.format_exc())
+        return False
