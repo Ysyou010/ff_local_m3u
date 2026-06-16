@@ -1,5 +1,5 @@
 title: "로컬 미디어 M3U"
-version: "0.1.0"
+version: "0.1.1"
 package_name: "ff_local_m3u"
 developer: "ysyou"
 description: "서버의 로컬 영상을 M3U로 변환하고 FFmpeg(스트림 카피)으로 재생하는 플러그인"
