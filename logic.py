@@ -17,6 +17,16 @@ def get_apikey():
 
 def get_base_url(req):
     try:
+        # 🌟 1순위: Flaskfarm 시스템에 설정된 DDNS 주소를 최우선으로 가져옵니다.
+        ddns = SystemModelSetting.get('ddns')
+        if ddns and ddns.strip():
+            return ddns.strip().rstrip("/")
+    except Exception as e:
+        P.logger.error(f"DDNS 주소 가져오기 실패: {str(e)}")
+        pass
+
+    try:
+        # 🌟 2순위: 만약 DDNS 설정이 비어있다면 기존처럼 현재 접속 중인 주소를 씁니다.
         return req.url_root.rstrip("/")
     except:
         return ""
