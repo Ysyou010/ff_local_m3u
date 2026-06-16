@@ -188,9 +188,10 @@ def play_ffmpeg_copy(encoded_name):
             
             ydl_opts = {
                 'quiet': True, 
-                'noplaylist': True
+                'noplaylist': True,
+                # 🌟 [봇 차단 우회] 유튜브 서버에 모바일/TV 앱인 것처럼 클라이언트 속이기
+                'extractor_args': {'youtube': ['player_client=android,ios,tv,web']} 
             }
-            
             # 🌟 [구간 탐색 활성화 핵심 로직] 화질별로 스트림 요청 방식을 분리합니다.
             if quality in ["720p", "480p", "360p", "240p", "144p"]:
                 # 720p 이하는 '이미 화면+소리가 합쳐진 단일 파일(b)'을 가져옵니다.
