@@ -1,19 +1,18 @@
 import os
 import subprocess
-import time
 import traceback
+import time
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
 from flask import Response, stream_with_context, redirect, send_file
 from framework import SystemModelSetting
 from .setup import P
 
-# 🌟 메모리 캐싱을 위한 전역 변수 설정 (기본 유지시간 1시간)
 _media_cache = {
     "timestamp": 0,
     "data": []
 }
-CACHE_DURATION = 3600
+CACHE_DURATION = 3600  
 
 def get_apikey():
     try:
@@ -25,7 +24,6 @@ def get_apikey():
 
 def get_base_url(req):
     try:
-        # 🌟 1순위: Flaskfarm 시스템에 설정된 DDNS 주소를 최우선으로 가져옵니다.
         ddns = SystemModelSetting.get('ddns')
         if ddns and ddns.strip():
             return ddns.strip().rstrip("/")
@@ -34,7 +32,6 @@ def get_base_url(req):
         pass
 
     try:
-        # 🌟 2순위: 만약 DDNS 설정이 비어있다면 기존처럼 현재 접속 중인 주소를 씁니다.
         return req.url_root.rstrip("/")
     except:
         return ""
@@ -63,7 +60,6 @@ def get_media_files(target_category=None, force_refresh=False):
     try:
         current_time = time.time()
         
-        # 🌟 1. 강제 새로고침이 아니고, 캐시가 있고, 1시간이 안 지났다면 캐시를 반환합니다.
         if not force_refresh and _media_cache["data"] and (current_time - _media_cache["timestamp"] < CACHE_DURATION):
             P.logger.debug("메모리에 캐싱된 M3U 미디어 목록을 반환합니다.")
             if target_category and target_category != 'all':
@@ -83,11 +79,20 @@ def get_media_files(target_category=None, force_refresh=False):
         exclude_raw = P.ModelSetting.get("exclude_keywords") or ""
         exclude_keywords = [kw.strip().lower() for kw in exclude_raw.split(",") if kw.strip()]
         
+        # 🌟 추가됨: 사용자 지정 스캔 타임아웃 및 최대 개수 불러오기 (오류 방지 예외처리 포함)
+        try:
+            MAX_FILES = int(P.ModelSetting.get("scan_max_files") or "100")
+        except:
+            MAX_FILES = 100
+            
+        try:
+            TIME_LIMIT = float(P.ModelSetting.get("scan_timeout") or "5.0")
+        except:
+            TIME_LIMIT = 5.0
+            
         file_list = []
         paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
         
-        MAX_FILES = 100
-        TIME_LIMIT = 5.0
         start_time = time.time()
         file_count = 0
         timeout_reached = False
@@ -140,6 +145,7 @@ def get_media_files(target_category=None, force_refresh=False):
                 for root, dirs, files in os.walk(path):
                     if time.time() - start_time > TIME_LIMIT:
                         timeout_reached = True
+                        P.logger.warning(f"[스캔 중단] 타임아웃 {TIME_LIMIT}초 초과: {path}")
                         break
                         
                     current_depth = root.rstrip(os.path.sep).count(os.path.sep)
@@ -149,6 +155,7 @@ def get_media_files(target_category=None, force_refresh=False):
                     for file_name in files:
                         if file_count >= MAX_FILES:
                             max_reached = True
+                            P.logger.warning(f"[스캔 중단] 최대 허용 개수({MAX_FILES}개) 도달")
                             break
                             
                         if file_name.lower().endswith(valid_exts):
@@ -177,7 +184,6 @@ def get_media_files(target_category=None, force_refresh=False):
                     if max_reached or timeout_reached:
                         break
         
-        # 🌟 2. 스캔이 무사히 끝나면 결과를 캐시에 저장합니다.
         _media_cache["data"] = file_list
         _media_cache["timestamp"] = time.time()
         
@@ -202,7 +208,6 @@ def get_media_list(req):
                 "idx": idx,
                 "name": display_name,
                 "url": play_url,
-                # 🌟 [수정] 프론트엔드 수정창에 띄워줄 원본 데이터 추가
                 "raw_category": item['category'],
                 "raw_title": item['title'],
                 "raw_quality": item['quality'],
@@ -269,98 +274,102 @@ def play_ffmpeg_copy(encoded_name):
             
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         
+        cmd = []
+        mimetype = "video/MP2T"
+
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
-            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트: {full_path}")
-            return send_file(full_path, conditional=True)
             
-        P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
-        try:
-            import yt_dlp
+            P.logger.info(f"[재생 시작] 로컬 파일 IPTV TS 패키징 (ExoPlayer 대응): {full_path}")
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+            cmd.extend(["-re", "-i", full_path])
+            cmd.extend([
+                "-map", "0:v:0?", "-map", "0:a:0?",
+                "-c:v", "copy", "-c:a", "copy",
+                "-fflags", "+genpts",
+                "-mpegts_flags", "resend_headers",
+                "-pcr_period", "40",
+                "-muxdelay", "0", "-f", "mpegts", "-"
+            ])
             
-            ydl_opts = {
-                'quiet': True, 
-                'noplaylist': True,
-                # 🌟 [봇 차단 우회] 유튜브 서버에 모바일/TV 앱인 것처럼 클라이언트 속이기
-                'extractor_args': {'youtube': ['player_client=android,ios,tv,web']} 
-            }
-            # 🌟 [구간 탐색 활성화 핵심 로직] 화질별로 스트림 요청 방식을 분리합니다.
-            if quality in ["720p", "480p", "360p", "240p", "144p"]:
-                # 720p 이하는 '이미 화면+소리가 합쳐진 단일 파일(b)'을 가져옵니다.
-                # FFmpeg 병합을 거치지 않고 주소만 바로 넘기므로 ExoPlayer에서 앞뒤 탐색이 100% 가능해집니다.
-                ydl_opts['format'] = 'b'
-                max_height = quality[:-1]
-                ydl_opts['format_sort'] = [f'res:{max_height}']
+        else:
+            P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
+            try:
+                import yt_dlp
                 
-            else:
-                # 1080p 또는 '자동(최대화질)'은 유튜브가 화면/소리를 분리하므로 실시간 병합(bv*+ba/b)을 사용합니다.
-                # 이 경우 플레이어에서 생방송처럼 인식되어 구간 탐색이 불가능합니다.
-                ydl_opts['format'] = 'bv*+ba/b'
-                if quality != "자동" and quality.endswith('p') and quality[:-1].isdigit():
+                ydl_opts = {
+                    'quiet': True, 
+                    'noplaylist': True,
+                    'extractor_args': {'youtube': ['player_client=android,ios,tv,web']} 
+                }
+                
+                if quality in ["720p", "480p", "360p", "240p", "144p"]:
+                    ydl_opts['format'] = 'b'
                     max_height = quality[:-1]
                     ydl_opts['format_sort'] = [f'res:{max_height}']
-                
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(full_path, download=False)
-                
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(full_path, download=False)
-                stream_url = info.get('url') or info.get('manifest_url')
-                is_live = info.get('is_live', False)
-                req_formats = info.get('requested_formats')
-                
-                if req_formats and len(req_formats) == 2 and not is_live:
-                    video_url = req_formats[0].get('url')
-                    audio_url = req_formats[1].get('url')
-                    
-                    headers = req_formats[0].get('http_headers', {})
-                    if headers and 'User-Agent' in headers:
-                        user_agent = headers['User-Agent']
-                        
-                    P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 중계 (목표 해상도: {quality})")
-                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                    cmd.extend(["-user_agent", user_agent])
-                    cmd.extend([
-                        "-i", video_url,
-                        "-i", audio_url,
-                        "-map", "0:v:0", "-map", "1:a:0",
-                        "-c:v", "copy", "-c:a", "copy",
-                        "-f", "matroska", "-"
-                    ])
-                    mimetype = "video/x-matroska"
-                
                 else:
-                    if not stream_url:
-                        P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
-                        return Response("유튜브 스트림 추출 실패", status=500)
-                        
-                    headers = info.get('http_headers', {})
-                    if headers and 'User-Agent' in headers:
-                        user_agent = headers['User-Agent']
-                        
-                    if not is_live:
-                        P.logger.info(f"[재생 시작] YouTube 단일 스트림 VOD 다이렉트 리다이렉트")
-                        return redirect(stream_url, code=302)
+                    ydl_opts['format'] = 'bv*+ba/b'
+                    if quality != "자동" and quality.endswith('p') and quality[:-1].isdigit():
+                        max_height = quality[:-1]
+                        ydl_opts['format_sort'] = [f'res:{max_height}']
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(full_path, download=False)
+                    stream_url = info.get('url') or info.get('manifest_url')
+                    is_live = info.get('is_live', False)
+                    req_formats = info.get('requested_formats')
                     
-                    P.logger.info(f"[재생 시작] YouTube 라이브 방송 TS 중계 가동")
-                    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                    cmd.extend(["-user_agent", user_agent])
-                    cmd.extend([
-                        "-i", stream_url,
-                        "-map", "0:v:0?", "-map", "0:a:0?",
-                        "-c:v", "copy", "-c:a", "copy",
-                        "-f", "mpegts", "-"
-                    ])
-                    mimetype = "video/MP2T"
+                    if req_formats and len(req_formats) == 2 and not is_live:
+                        video_url = req_formats[0].get('url')
+                        audio_url = req_formats[1].get('url')
+                        
+                        headers = req_formats[0].get('http_headers', {})
+                        if headers and 'User-Agent' in headers:
+                            user_agent = headers['User-Agent']
+                            
+                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 중계")
+                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                        cmd.extend(["-user_agent", user_agent])
+                        cmd.extend([
+                            "-i", video_url,
+                            "-i", audio_url,
+                            "-map", "0:v:0", "-map", "1:a:0",
+                            "-c:v", "copy", "-c:a", "copy",
+                            "-f", "matroska", "-"
+                        ])
+                        mimetype = "video/x-matroska"
                     
-        except Exception as e:
-            P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
-            P.logger.error(traceback.format_exc())
-            return Response(f"유튜브 에러: {e}", status=500)
+                    else:
+                        if not stream_url:
+                            P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
+                            return Response("유튜브 스트림 추출 실패", status=500)
+                            
+                        headers = info.get('http_headers', {})
+                        if headers and 'User-Agent' in headers:
+                            user_agent = headers['User-Agent']
+                            
+                        P.logger.info(f"[재생 시작] YouTube 단일 스트림 TS 프록시 중계 (ExoPlayer 대응)")
+                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+                        cmd.extend(["-user_agent", user_agent])
+                        cmd.extend([
+                            "-i", stream_url,
+                            "-map", "0:v:0?", "-map", "0:a:0?",
+                            "-c:v", "copy", "-c:a", "copy",
+                            "-fflags", "+genpts",
+                            "-mpegts_flags", "resend_headers",
+                            "-pcr_period", "40",
+                            "-f", "mpegts", "-"
+                        ])
+                        mimetype = "video/MP2T"
+                        
+            except Exception as e:
+                P.logger.error(f"[재생 실패] 유튜브 에러: {e}")
+                P.logger.error(traceback.format_exc())
+                return Response(f"유튜브 에러: {e}", status=500)
         
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         
         @stream_with_context
         def generate():
@@ -373,9 +382,15 @@ def play_ffmpeg_copy(encoded_name):
             finally:
                 if proc.poll() is None:
                     proc.kill()
-                P.logger.info("[재생 종료] YouTube 스트림 연결 해제")
+                P.logger.info("[재생 종료] 스트림 연결 해제")
 
-        return Response(generate(), mimetype=mimetype)
+        response = Response(generate(), mimetype=mimetype)
+        
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Connection'] = 'keep-alive'
+        
+        return response
 
     except Exception as e:
         P.logger.error(f"[재생 에러] {str(e)}")
@@ -396,7 +411,6 @@ def play_subtitle(encoded_name):
         P.logger.error(f"[자막 에러] {str(e)}")
         return Response("Subtitle Error", status=500)
 
-# 🌟 [추가] 프론트엔드에서 넘어온 수정 데이터를 DB에 반영하는 함수
 def edit_media_item(idx, category, title, quality, path):
     try:
         media_path_raw = P.ModelSetting.get("media_path")
@@ -404,10 +418,9 @@ def edit_media_item(idx, category, title, quality, path):
         
         non_empty_count = 0
         for i, line in enumerate(lines):
-            if line.strip():  # 빈 줄은 건너뛰고 카운트
+            if line.strip():  
                 non_empty_count += 1
                 if non_empty_count == idx:
-                    # 해당 순번의 줄을 새로운 규격으로 덮어씁니다
                     lines[i] = f"{category} | {title} | {quality} | {path}"
                     break
                     
