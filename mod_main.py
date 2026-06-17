@@ -14,6 +14,8 @@ class ModuleMain(PluginModuleBase):
             "category_list": "", 
             "scan_depth": "2",                       # 기본 스캔 깊이 (2단계)
             "exclude_keywords": "sample, trailer, \.", # 제외할 단어 기본값 (콤마로 구분)
+            "scan_timeout": "5",       # 🌟 추가됨: 기본 제한 시간 5초
+            "scan_max_files": "100",   # 🌟 추가됨: 기본 최대 개수 100개
         }
 
     def plugin_load(self):
