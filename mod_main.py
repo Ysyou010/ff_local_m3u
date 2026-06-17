@@ -12,10 +12,10 @@ class ModuleMain(PluginModuleBase):
             "media_path": "",
             "extensions": ".mp4,.mkv,.avi,.ts",
             "category_list": "", 
-            "scan_depth": "2",                       # 기본 스캔 깊이 (2단계)
-            "exclude_keywords": "sample, trailer, \.", # 제외할 단어 기본값 (콤마로 구분)
-            "scan_timeout": "5",       # 🌟 추가됨: 기본 제한 시간 5초
-            "scan_max_files": "100",   # 🌟 추가됨: 기본 최대 개수 100개
+            "scan_depth": "2",
+            "exclude_keywords": "sample, trailer, \.",
+            "scan_timeout": "5",       
+            "scan_max_files": "100",   
         }
 
     def plugin_load(self):
@@ -38,18 +38,16 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return f"<h1>에러</h1><pre>{traceback.format_exc()}</pre>"
 
-def process_command(self, command, arg1, arg2, arg3, req):
+    def process_command(self, command, arg1, arg2, arg3, req):
         try:
             if command == "get_list":
                 list_data = logic.get_media_list(req)
                 return jsonify({"ret": "success", "list": list_data})
             
-            # 🌟 [추가] 수동 새로고침 버튼을 눌렀을 때 호출될 명령어
             if command == "refresh_cache":
                 logic.get_media_files(target_category='all', force_refresh=True)
                 return jsonify({"ret": "success", "msg": "목록을 다시 스캔하여 갱신했습니다."})
             
-            # 🌟 (기존 리스트 수정 저장 등 아래 로직은 그대로 유지)
             if command == "edit_item":
                 data = json.loads(arg1)
                 ret = logic.edit_media_item(int(data['idx']), data['category'], data['title'], data['quality'], data['path'])
@@ -82,7 +80,6 @@ def process_command(self, command, arg1, arg2, arg3, req):
                     return Response("play_ffmpeg_copy 반환값 없음", status=500)
                 return ret
             
-            # 🌟 [추가된 부분] 자막 요청(subtitle)이 들어오면 logic.play_subtitle로 연결해 줍니다.
             if sub == "subtitle":
                 encoded_name = req.args.get("file")
                 if not encoded_name:
