@@ -34,6 +34,7 @@
         {{ macros.setting_input_text('scan_depth', '폴더 스캔 깊이 제한', value=arg.get('scan_depth', '2'), desc=['폴더 경로 입력 시 탐색할 하위 폴더의 깊이를 설정합니다.', '1: 선택한 폴더 내부만 탐색 / 2: 하위 폴더 1단계까지 탐색 (기본값: 2)']) }}
 
         {{ macros.setting_input_text('exclude_keywords', '제외할 단어 목록', value=arg.get('exclude_keywords', 'sample, trailer, \.'), desc=['쉼표(,)로 구분하여 입력하세요.', '파일 경로나 이름에 해당 단어가 포함되어 있으면 스캔 시 자동으로 스킵합니다.']) }}
+
         {{ macros.m_hr() }}
         
         <div class="form-group row">
@@ -85,7 +86,12 @@
               <select id="category_filter" class="form-control form-control-sm mb-1 mb-md-0" style="width: auto; min-width: 150px;">
                 <option value="전체">전체 카테고리</option>
               </select>
-              <small class="text-primary mt-1 mt-md-0"><b><i class="fa fa-check-circle"></i> 변경/수정 사항은 조용히 자동 저장됩니다.</b></small>
+              <div class="d-flex align-items-center mt-1 mt-md-0">
+                <small class="text-primary mr-3"><b><i class="fa fa-check-circle"></i> 변경 사항 자동 저장</b></small>
+                <button type="button" class="btn btn-sm btn-outline-info shadow-sm" id="btn_refresh_cache" title="새 파일이 추가되었을 때 수동으로 스캔합니다.">
+                    <i class="fa fa-sync-alt"></i> 목록 강제 재스캔
+                </button>
+              </div>
             </div>
             <ul class="list-group shadow-sm" id="path_list_display" style="max-height: 500px; overflow-y: auto; border-radius: 4px;"></ul>
           </div>
@@ -174,7 +180,6 @@ function autoSaveList() {
     });
 }
 
-// 🌟 확장자, 스캔 깊이, 제외 단어 입력값이 변경되면 자동으로 DB 저장되도록 수정
 $("body").on('change', '#extensions, #scan_depth, #exclude_keywords', function() { autoSaveList(); });
 
 function initCategoryManager() {
@@ -396,6 +401,38 @@ $(document).ready(function(){
         var targetPane = $(this).attr('href');
         $('.tab-pane').removeClass('active in show');
         $(targetPane).addClass('active in show');
+    });
+});
+
+$("body").on('click', '#btn_refresh_cache', function(e){
+    e.preventDefault();
+    var $btn = $(this);
+    var $icon = $btn.find('i');
+    
+    $icon.addClass('fa-spin'); 
+    $btn.prop('disabled', true);
+    
+    $.ajax({
+        url: '/' + PACKAGE_NAME + '/ajax/refresh_cache',
+        type: "POST", 
+        cache: false,
+        data: {},
+        dataType: "json",
+        success: function (data) {
+            $icon.removeClass('fa-spin');
+            $btn.prop('disabled', false);
+            
+            if(data.ret === 'success') {
+                notify(data.msg, 'success');
+            } else {
+                notify('갱신 실패: ' + data.msg, 'warning');
+            }
+        },
+        error: function() {
+            $icon.removeClass('fa-spin');
+            $btn.prop('disabled', false);
+            notify('서버 통신 에러', 'error');
+        }
     });
 });
 
