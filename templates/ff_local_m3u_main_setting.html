@@ -31,6 +31,9 @@
         
         {{ macros.setting_input_text('extensions', '지원 확장자', value=arg.get('extensions', '.mp4,.mkv,.avi,.ts'), desc=['쉼표(,)로 구분하여 입력하세요. (수정 후 빈 공간을 클릭하면 자동 저장됩니다)']) }}
         
+        {{ macros.setting_input_text('scan_depth', '폴더 스캔 깊이 제한', value=arg.get('scan_depth', '2'), desc=['폴더 경로 입력 시 탐색할 하위 폴더의 깊이를 설정합니다.', '1: 선택한 폴더 내부만 탐색 / 2: 하위 폴더 1단계까지 탐색 (기본값: 2)']) }}
+
+        {{ macros.setting_input_text('exclude_keywords', '제외할 단어 목록', value=arg.get('exclude_keywords', 'sample, trailer, \.'), desc=['쉼표(,)로 구분하여 입력하세요.', '파일 경로나 이름에 해당 단어가 포함되어 있으면 스캔 시 자동으로 스킵합니다.']) }}
         {{ macros.m_hr() }}
         
         <div class="form-group row">
@@ -71,7 +74,7 @@
                 </div>
               </div>
             </div>
-            <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다.</small>
+            <small class="form-text text-muted">유튜브의 경우 지정한 화질 이하의 최고 화질을 자동으로 찾아 재생합니다. 폴더 경로를 입력하면 하위 폴더의 파일들이 자동 검색됩니다.</small>
           </div>
         </div>
 
@@ -171,7 +174,8 @@ function autoSaveList() {
     });
 }
 
-$("body").on('change', '#extensions', function() { autoSaveList(); });
+// 🌟 확장자, 스캔 깊이, 제외 단어 입력값이 변경되면 자동으로 DB 저장되도록 수정
+$("body").on('change', '#extensions, #scan_depth, #exclude_keywords', function() { autoSaveList(); });
 
 function initCategoryManager() {
     var raw = $('#category_list').val().trim();
@@ -237,7 +241,6 @@ $('#manage_category_input').keypress(function(e){
 });
 
 $("body").on('click', '.delete_cat_icon', function(e) {
-    // 🌟 카테고리 삭제 시에도 안전장치 추가
     if(confirm("이 카테고리를 정말 삭제하시겠습니까?\n(등록된 미디어의 카테고리는 유지됩니다)")) {
         var catToDelete = $(this).data('cat');
         var idx = definedCategories.indexOf(catToDelete);
@@ -421,7 +424,6 @@ $("body").on('click', '.move_btn', function(e){
     }
 });
 
-// 🌟 미디어 목록 삭제 버튼 클릭 시 확인 알림창 띄우기
 $("body").on('click', '.delete_path_btn', function(e){
     e.preventDefault();
     if (confirm("정말로 이 미디어를 삭제하시겠습니까?")) {
