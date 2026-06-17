@@ -105,14 +105,18 @@ $("body").on('click', '#btn_refresh_cache_list', function(e){
     $icon.addClass('fa-spin'); 
     $btn.prop('disabled', true);
     
-    $('#list_div').html('<div class="text-center mt-5"><i class="fa fa-spinner fa-spin fa-2x"></i> 하드디스크 폴더를 재스캔 중입니다...</div>');
+    // 🌟 현재 선택되어 있는 탭을 스캔 대상으로 지정합니다. ("전체"일 경우 모두 스캔)
+    var targetToScan = current_category; 
+    var msgText = targetToScan === "전체" ? "전체 목록을 재스캔 중입니다..." : "[" + targetToScan + "] 카테고리의 폴더만 스캔 중입니다...";
+    $('#list_div').html('<div class="text-center mt-5"><i class="fa fa-spinner fa-spin fa-2x"></i> ' + msgText + '</div>');
 
-    globalSendCommand('get_list', "true", null, null, function(data) {
+    // arg1: 강제 새로고침("true"), arg2: 부분 스캔 카테고리(targetToScan)
+    globalSendCommand('get_list', "true", targetToScan, null, function(data) {
         $icon.removeClass('fa-spin');
         $btn.prop('disabled', false);
         
         if (data.ret == "success") {
-            notify("새로운 파일 목록을 스캔했습니다.", 'success');
+            notify(targetToScan === "전체" ? "전체 목록을 갱신했습니다." : "[" + targetToScan + "] 카테고리 스캔 완료", 'success');
             current_data = data.list;
             extractCategories(); 
             renderTabs();        
