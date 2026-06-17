@@ -2,6 +2,7 @@ import os
 import subprocess
 import traceback
 import time
+import mimetypes
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
 from flask import Response, stream_with_context, redirect, send_file
@@ -61,7 +62,6 @@ def get_media_files(target_category=None, force_refresh=False):
         current_time = time.time()
         
         if not force_refresh and _media_cache["data"] and (current_time - _media_cache["timestamp"] < CACHE_DURATION):
-            P.logger.debug("메모리에 캐싱된 M3U 미디어 목록을 반환합니다.")
             if target_category and target_category != 'all':
                 return [x for x in _media_cache["data"] if x['category'] == target_category]
             return _media_cache["data"]
@@ -79,7 +79,6 @@ def get_media_files(target_category=None, force_refresh=False):
         exclude_raw = P.ModelSetting.get("exclude_keywords") or ""
         exclude_keywords = [kw.strip().lower() for kw in exclude_raw.split(",") if kw.strip()]
         
-        # 🌟 추가됨: 사용자 지정 스캔 타임아웃 및 최대 개수 불러오기 (오류 방지 예외처리 포함)
         try:
             MAX_FILES = int(P.ModelSetting.get("scan_max_files") or "100")
         except:
@@ -145,7 +144,6 @@ def get_media_files(target_category=None, force_refresh=False):
                 for root, dirs, files in os.walk(path):
                     if time.time() - start_time > TIME_LIMIT:
                         timeout_reached = True
-                        P.logger.warning(f"[스캔 중단] 타임아웃 {TIME_LIMIT}초 초과: {path}")
                         break
                         
                     current_depth = root.rstrip(os.path.sep).count(os.path.sep)
@@ -155,7 +153,6 @@ def get_media_files(target_category=None, force_refresh=False):
                     for file_name in files:
                         if file_count >= MAX_FILES:
                             max_reached = True
-                            P.logger.warning(f"[스캔 중단] 최대 허용 개수({MAX_FILES}개) 도달")
                             break
                             
                         if file_name.lower().endswith(valid_exts):
@@ -194,14 +191,18 @@ def get_media_files(target_category=None, force_refresh=False):
 
 def get_media_list(req, force_refresh=False):
     try:
-        # 🌟 파라미터로 받은 강제 새로고침 여부를 넘겨줍니다.
         files = get_media_files('all', force_refresh=force_refresh)
         result = []
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
             
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mkv'
+            # 🌟 [개선] 브라우저 웹플레이어 재생을 위해 확장자명 소문자 변환 및 유튜브 MP4 매핑
+            if not item['path'].startswith('http'):
+                ext = os.path.splitext(item['path'])[1].lower()
+            else:
+                ext = '.mp4' if item['quality'] in ["720p", "480p", "360p", "240p", "144p"] else '.ts'
+                
             play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = f"[{item['category']}] {item['title']}"
@@ -229,7 +230,11 @@ def make_m3u(req):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
             
-            ext = os.path.splitext(item['path'])[1] if not item['path'].startswith('http') else '.mkv'
+            if not item['path'].startswith('http'):
+                ext = os.path.splitext(item['path'])[1].lower()
+            else:
+                ext = '.mp4' if item['quality'] in ["720p", "480p", "360p", "240p", "144p"] else '.ts'
+                
             play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
             
             display_name = item['title']
@@ -237,14 +242,10 @@ def make_m3u(req):
             sub_url = ""
             if not item['path'].startswith('http'):
                 base_path = os.path.splitext(item['path'])[0]
-                
                 possible_srts = [
-                    base_path + ".srt",
-                    base_path + ".ko.srt",
-                    base_path + ".kr.srt",
-                    base_path + ".kor.srt"
+                    base_path + ".srt", base_path + ".ko.srt",
+                    base_path + ".kr.srt", base_path + ".kor.srt"
                 ]
-                
                 for srt_path in possible_srts:
                     if os.path.isfile(srt_path):
                         encoded_sub = _safe_b64encode(srt_path)
@@ -278,21 +279,22 @@ def play_ffmpeg_copy(encoded_name):
         cmd = []
         mimetype = "video/MP2T"
 
-        # ==========================================
-        # 1. 로컬 파일 처리 (구간 탐색 및 길이 표시 활성화)
-        # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
             
-            # 🌟 conditional=True가 HTTP 206 Partial Content를 지원하여 영상 길이 표시와 앞뒤 탐색을 가능하게 합니다.
+            # 🌟 [핵심 개선] 브라우저 내장 플레이어가 차단하지 않도록 완벽한 MIME 타입과 HTTP 헤더 전송
+            mime_type, _ = mimetypes.guess_type(full_path)
+            if not mime_type:
+                mime_type = 'video/mp4'
+                
             P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송 (구간 탐색 가능): {full_path}")
-            return send_file(full_path, conditional=True)
+            response = send_file(full_path, mimetype=mime_type, conditional=True)
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
             
-        # ==========================================
-        # 2. 유튜브 처리
-        # ==========================================
         else:
             P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
             try:
@@ -320,33 +322,25 @@ def play_ffmpeg_copy(encoded_name):
                     is_live = info.get('is_live', False)
                     req_formats = info.get('requested_formats')
                     
-                    # 🌟 A. 1080p 고화질 VOD: 비디오/오디오 분리본 병합 (생방송 모드 - 탐색 불가)
                     if req_formats and len(req_formats) == 2 and not is_live:
                         video_url = req_formats[0].get('url')
                         audio_url = req_formats[1].get('url')
-                        
                         headers = req_formats[0].get('http_headers', {})
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
                             
-                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 (구간 탐색 불가)")
-                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                        cmd.extend(["-user_agent", user_agent])
-                        cmd.extend([
-                            "-i", video_url,
-                            "-i", audio_url,
-                            "-map", "0:v:0", "-map", "1:a:0",
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-f", "matroska", "-"
-                        ])
+                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 중계 (구간 탐색 불가)")
+                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-user_agent", user_agent,
+                               "-i", video_url, "-i", audio_url,
+                               "-map", "0:v:0", "-map", "1:a:0",
+                               "-c:v", "copy", "-c:a", "copy",
+                               "-f", "matroska", "-"]
                         mimetype = "video/x-matroska"
                     
-                    # 🌟 B. 720p 이하 VOD: 다이렉트 리다이렉트 (영상 길이 표시 및 구간 탐색 가능)
                     elif not is_live and stream_url and quality in ["720p", "480p", "360p", "240p", "144p"]:
                         P.logger.info(f"[재생 시작] YouTube 단일 스트림 다이렉트 연결 (구간 탐색 가능)")
                         return redirect(stream_url, code=302)
                         
-                    # 🌟 C. 실제 라이브 방송 및 기타: 생방송 TS 프록시 중계
                     else:
                         if not stream_url:
                             P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
@@ -356,18 +350,13 @@ def play_ffmpeg_copy(encoded_name):
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
                             
-                        P.logger.info(f"[재생 시작] YouTube 라이브 방송 TS 프록시 중계")
-                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-                        cmd.extend(["-user_agent", user_agent])
-                        cmd.extend([
-                            "-i", stream_url,
-                            "-map", "0:v:0?", "-map", "0:a:0?",
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-fflags", "+genpts",
-                            "-mpegts_flags", "resend_headers",
-                            "-pcr_period", "40",
-                            "-f", "mpegts", "-"
-                        ])
+                        P.logger.info(f"[재생 시작] YouTube 실시간 방송 TS 프록시 중계 (구간 탐색 불가)")
+                        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-user_agent", user_agent,
+                               "-i", stream_url,
+                               "-map", "0:v:0?", "-map", "0:a:0?",
+                               "-c:v", "copy", "-c:a", "copy",
+                               "-fflags", "+genpts", "-mpegts_flags", "resend_headers",
+                               "-pcr_period", "40", "-f", "mpegts", "-"]
                         mimetype = "video/MP2T"
                         
             except Exception as e:
@@ -375,7 +364,6 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
         
-        # FFmpeg 명령이 생성된 경우에만 실행 (리다이렉트나 send_file로 빠진 경우는 제외)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         
         @stream_with_context
@@ -402,6 +390,7 @@ def play_ffmpeg_copy(encoded_name):
         P.logger.error(f"[재생 에러] {str(e)}")
         P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
+
 def play_subtitle(encoded_name):
     try:
         full_path = _safe_b64decode(encoded_name)
