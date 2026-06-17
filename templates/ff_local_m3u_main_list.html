@@ -57,7 +57,6 @@ var current_data = [];
 var categories = [];
 var current_category = "전체";
 
-// Video.js 플레이어 초기화
 let options = {
   html5: { nativeTextTracks: false },
   controls: true,
@@ -78,11 +77,9 @@ player.on("play", () => {
   if (nowPlaying) nowPlaying.find('i.fa').removeClass('fa-play').addClass('fa-pause');
 });
 
-// 🌟 목록 불러오기 함수 (강제 스캔 파라미터 통합)
 function loadListData(force_refresh = false) {
     $('#list_div').html('<div class="text-center mt-5"><i class="fa fa-spinner fa-spin fa-2x"></i> 폴더를 스캔하여 목록을 불러오는 중입니다...</div>');
     
-    // arg1 자리에 "true" 또는 "false" 문자열을 넘겨 서버에 캐시 무시 여부를 전달합니다.
     globalSendCommand('get_list', force_refresh ? "true" : "false", null, null, function(data) {
         if (data.ret == "success") {
             current_data = data.list;
@@ -97,10 +94,9 @@ function loadListData(force_refresh = false) {
 }
 
 $(document).ready(function(){
-    loadListData(false); // 페이지 최초 진입 시에는 캐시된 데이터를 우선 사용
+    loadListData(false); 
 });
 
-// 🌟 새로고침 버튼 로직 (UI 변경 및 One-Shot AJAX 연동)
 $("body").on('click', '#btn_refresh_cache_list', function(e){
     e.preventDefault();
     var $btn = $(this);
@@ -111,7 +107,6 @@ $("body").on('click', '#btn_refresh_cache_list', function(e){
     
     $('#list_div').html('<div class="text-center mt-5"><i class="fa fa-spinner fa-spin fa-2x"></i> 하드디스크 폴더를 재스캔 중입니다...</div>');
 
-    // 한 번의 요청으로 캐시 비우기 + 스캔 + 목록 가져오기를 동시 처리합니다.
     globalSendCommand('get_list', "true", null, null, function(data) {
         $icon.removeClass('fa-spin');
         $btn.prop('disabled', false);
@@ -128,7 +123,6 @@ $("body").on('click', '#btn_refresh_cache_list', function(e){
         }
     });
 });
-
 
 function extractCategories() {
     var catSet = new Set();
@@ -211,15 +205,17 @@ function make_list() {
     $('#list_div').html(html);
 }
 
-// 스마트 재생 버튼 클릭 이벤트
+// 🌟 재생 로직 업그레이드
 $("body").on('click', '.play_btn', function(e){
     e.preventDefault();
     let wantPlay = $(this);
     var url = wantPlay.data('url');
     var name = wantPlay.data('name');
     
-    var isMp4 = url.indexOf("ext=.mp4") !== -1;
+    // 대소문자 무시하고 MP4 포맷인지 확인
+    var isMp4 = url.toLowerCase().indexOf("ext=.mp4") !== -1;
     
+    // 크롬 등 브라우저 내장 플레이어는 mp4 확장자만 네이티브로 재생 가능합니다. (.mkv, .ts 등은 불가)
     if (isMp4) {
         if (wantPlay.is(nowPlaying)) {
             if (player.paused()) { player.play(); } else { player.pause(); }
@@ -236,11 +232,13 @@ $("body").on('click', '.play_btn', function(e){
         
         player.src({ src: url, type: 'video/mp4' }); 
         player.play().catch(function(error) {
-            notify('자동 재생이 차단되었습니다. 플레이어의 재생 버튼을 눌러주세요.', 'warning');
+            console.error("비디오 재생 오류:", error);
+            notify('자동 재생이 차단되었습니다. 플레이어 중앙의 재생 버튼을 직접 눌러주세요.', 'warning');
         });
         
         window.scrollTo({top: 0, behavior: 'smooth'});
     } else {
+        // 브라우저가 지원하지 않는 포맷(.mkv, 라이브 .ts 등)은 기존처럼 팝업 플레이어(FFmpeg 패키징)로 넘깁니다.
         if (nowPlaying) {
             nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');
         }
@@ -264,7 +262,6 @@ $("body").on('click', '.play_btn', function(e){
     }
 });
 
-// 주소 복사 버튼 기능
 $("body").on('click', '.copy_btn', function(e){
     e.preventDefault();
     var url = $(this).data('url');
