@@ -36,13 +36,18 @@ class ModuleMain(PluginModuleBase):
             P.logger.error(traceback.format_exc())
             return f"<h1>에러</h1><pre>{traceback.format_exc()}</pre>"
 
-    def process_command(self, command, arg1, arg2, arg3, req):
+def process_command(self, command, arg1, arg2, arg3, req):
         try:
             if command == "get_list":
                 list_data = logic.get_media_list(req)
                 return jsonify({"ret": "success", "list": list_data})
             
-            # 🌟 [추가] 리스트 수정 저장 명령어 처리
+            # 🌟 [추가] 수동 새로고침 버튼을 눌렀을 때 호출될 명령어
+            if command == "refresh_cache":
+                logic.get_media_files(target_category='all', force_refresh=True)
+                return jsonify({"ret": "success", "msg": "목록을 다시 스캔하여 갱신했습니다."})
+            
+            # 🌟 (기존 리스트 수정 저장 등 아래 로직은 그대로 유지)
             if command == "edit_item":
                 data = json.loads(arg1)
                 ret = logic.edit_media_item(int(data['idx']), data['category'], data['title'], data['quality'], data['path'])
