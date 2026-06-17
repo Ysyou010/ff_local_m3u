@@ -58,8 +58,20 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
-def get_media_files(target_category=None):
+def get_media_files(target_category=None, force_refresh=False):
+    global _media_cache
     try:
+        current_time = time.time()
+        
+        # 🌟 1. 강제 새로고침이 아니고, 캐시가 있고, 1시간이 안 지났다면 캐시를 반환합니다.
+        if not force_refresh and _media_cache["data"] and (current_time - _media_cache["timestamp"] < CACHE_DURATION):
+            P.logger.debug("메모리에 캐싱된 M3U 미디어 목록을 반환합니다.")
+            if target_category and target_category != 'all':
+                return [x for x in _media_cache["data"] if x['category'] == target_category]
+            return _media_cache["data"]
+
+        P.logger.info("미디어 폴더를 새로 스캔하여 캐시를 갱신합니다.")
+        
         media_path_raw = P.ModelSetting.get("media_path")
         if not media_path_raw:
             return []
@@ -67,7 +79,6 @@ def get_media_files(target_category=None):
         ext_setting = P.ModelSetting.get("extensions")
         valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
         
-        # 🌟 UI 설정창에서 스캔 깊이와 제외 단어 리스트를 가져옵니다.
         scan_depth = int(P.ModelSetting.get("scan_depth") or "2")
         exclude_raw = P.ModelSetting.get("exclude_keywords") or ""
         exclude_keywords = [kw.strip().lower() for kw in exclude_raw.split(",") if kw.strip()]
@@ -75,9 +86,8 @@ def get_media_files(target_category=None):
         file_list = []
         paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
         
-        # 🌟 안전장치 변수 설정
-        MAX_FILES = 200
-        TIME_LIMIT = 10.0
+        MAX_FILES = 100
+        TIME_LIMIT = 5.0
         start_time = time.time()
         file_count = 0
         timeout_reached = False
@@ -124,33 +134,26 @@ def get_media_files(target_category=None):
                     file_list.append({"category": category, "title": display_title, "quality": quality, "path": path.replace('\\', '/')})
                     file_count += 1
             
-            # 🌟 폴더인 경우 안전장치 적용 스캔
             elif os.path.isdir(path):
                 base_depth = path.rstrip(os.path.sep).count(os.path.sep)
                 
                 for root, dirs, files in os.walk(path):
-                    # 1. 스캔 시간 초과 (5초) 확인
                     if time.time() - start_time > TIME_LIMIT:
                         timeout_reached = True
-                        P.logger.warning(f"[스캔 중단] 타임아웃 5초 초과: {path}")
                         break
                         
-                    # 2. 스캔 깊이 제한 적용
                     current_depth = root.rstrip(os.path.sep).count(os.path.sep)
                     if current_depth - base_depth >= scan_depth:
-                        del dirs[:] # 지정된 깊이에 도달하면 더 이상 하위 폴더로 내려가지 않습니다.
+                        del dirs[:]
                         
                     for file_name in files:
-                        # 3. 최대 100개 제한 확인
                         if file_count >= MAX_FILES:
                             max_reached = True
-                            P.logger.warning(f"[스캔 중단] 최대 허용 개수(100개) 도달")
                             break
                             
                         if file_name.lower().endswith(valid_exts):
                             full_file_path = os.path.join(root, file_name).replace('\\', '/')
                             
-                            # 4. 제외 키워드 포함 여부 검사
                             skip_file = False
                             for kw in exclude_keywords:
                                 if kw in full_file_path.lower():
@@ -158,7 +161,7 @@ def get_media_files(target_category=None):
                                     break
                                     
                             if skip_file:
-                                continue # 금지어가 포함되어 있으면 스킵
+                                continue
                                 
                             file_base_name = os.path.splitext(file_name)[0]
                             display_title = f"{title} - {file_base_name}" if title else file_base_name
@@ -173,7 +176,11 @@ def get_media_files(target_category=None):
                             
                     if max_reached or timeout_reached:
                         break
-                        
+        
+        # 🌟 2. 스캔이 무사히 끝나면 결과를 캐시에 저장합니다.
+        _media_cache["data"] = file_list
+        _media_cache["timestamp"] = time.time()
+        
         return file_list
     except Exception as e:
         P.logger.error(traceback.format_exc())
