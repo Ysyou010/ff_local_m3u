@@ -278,23 +278,21 @@ def play_ffmpeg_copy(encoded_name):
         cmd = []
         mimetype = "video/MP2T"
 
+        # ==========================================
+        # 1. 로컬 파일 처리 (구간 탐색 및 길이 표시 활성화)
+        # ==========================================
         if not (full_path.startswith("http://") or full_path.startswith("https://")):
             if not os.path.isfile(full_path):
                 P.logger.error(f"[재생 실패] 로컬 파일 없음: {full_path}")
                 return Response(f"File not found: {full_path}", status=404)
             
-            P.logger.info(f"[재생 시작] 로컬 파일 IPTV TS 패키징 (ExoPlayer 대응): {full_path}")
-            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-            cmd.extend(["-re", "-i", full_path])
-            cmd.extend([
-                "-map", "0:v:0?", "-map", "0:a:0?",
-                "-c:v", "copy", "-c:a", "copy",
-                "-fflags", "+genpts",
-                "-mpegts_flags", "resend_headers",
-                "-pcr_period", "40",
-                "-muxdelay", "0", "-f", "mpegts", "-"
-            ])
+            # 🌟 conditional=True가 HTTP 206 Partial Content를 지원하여 영상 길이 표시와 앞뒤 탐색을 가능하게 합니다.
+            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송 (구간 탐색 가능): {full_path}")
+            return send_file(full_path, conditional=True)
             
+        # ==========================================
+        # 2. 유튜브 처리
+        # ==========================================
         else:
             P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
             try:
@@ -322,6 +320,7 @@ def play_ffmpeg_copy(encoded_name):
                     is_live = info.get('is_live', False)
                     req_formats = info.get('requested_formats')
                     
+                    # 🌟 A. 1080p 고화질 VOD: 비디오/오디오 분리본 병합 (생방송 모드 - 탐색 불가)
                     if req_formats and len(req_formats) == 2 and not is_live:
                         video_url = req_formats[0].get('url')
                         audio_url = req_formats[1].get('url')
@@ -330,7 +329,7 @@ def play_ffmpeg_copy(encoded_name):
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
                             
-                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 중계")
+                        P.logger.info(f"[재생 시작] YouTube 고화질 VOD - MKV 수동 병합 (구간 탐색 불가)")
                         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                         cmd.extend(["-user_agent", user_agent])
                         cmd.extend([
@@ -342,6 +341,12 @@ def play_ffmpeg_copy(encoded_name):
                         ])
                         mimetype = "video/x-matroska"
                     
+                    # 🌟 B. 720p 이하 VOD: 다이렉트 리다이렉트 (영상 길이 표시 및 구간 탐색 가능)
+                    elif not is_live and stream_url and quality in ["720p", "480p", "360p", "240p", "144p"]:
+                        P.logger.info(f"[재생 시작] YouTube 단일 스트림 다이렉트 연결 (구간 탐색 가능)")
+                        return redirect(stream_url, code=302)
+                        
+                    # 🌟 C. 실제 라이브 방송 및 기타: 생방송 TS 프록시 중계
                     else:
                         if not stream_url:
                             P.logger.error("[재생 실패] 유튜브 스트림 추출 실패")
@@ -351,7 +356,7 @@ def play_ffmpeg_copy(encoded_name):
                         if headers and 'User-Agent' in headers:
                             user_agent = headers['User-Agent']
                             
-                        P.logger.info(f"[재생 시작] YouTube 단일 스트림 TS 프록시 중계 (ExoPlayer 대응)")
+                        P.logger.info(f"[재생 시작] YouTube 라이브 방송 TS 프록시 중계")
                         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
                         cmd.extend(["-user_agent", user_agent])
                         cmd.extend([
@@ -370,6 +375,7 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
         
+        # FFmpeg 명령이 생성된 경우에만 실행 (리다이렉트나 send_file로 빠진 경우는 제외)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         
         @stream_with_context
@@ -386,7 +392,6 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.info("[재생 종료] 스트림 연결 해제")
 
         response = Response(generate(), mimetype=mimetype)
-        
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Connection'] = 'keep-alive'
@@ -397,7 +402,6 @@ def play_ffmpeg_copy(encoded_name):
         P.logger.error(f"[재생 에러] {str(e)}")
         P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
-
 def play_subtitle(encoded_name):
     try:
         full_path = _safe_b64decode(encoded_name)
