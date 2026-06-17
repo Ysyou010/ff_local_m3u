@@ -84,19 +84,41 @@ def get_media_files(target_category=None):
                 title = ""
                 quality = "자동"
                 path = line.strip()
-                
-            if not title:
-                title = "YouTube Stream" if path.startswith("http") else os.path.basename(path)
 
             if target_category and target_category != 'all' and category != target_category:
                 continue
                 
+            # 1. 인터넷 스트리밍 주소
             if path.startswith("http://") or path.startswith("https://"):
-                file_list.append({"category": category, "title": title, "quality": quality, "path": path})
+                display_title = title if title else "YouTube Stream"
+                file_list.append({"category": category, "title": display_title, "quality": quality, "path": path})
+            
+            # 2. 지정된 단일 파일
             elif os.path.isfile(path):
                 if path.lower().endswith(valid_exts):
-                    file_list.append({"category": category, "title": title, "quality": quality, "path": path.replace('\\', '/')})
-                    
+                    display_title = title if title else os.path.basename(path)
+                    file_list.append({"category": category, "title": display_title, "quality": quality, "path": path.replace('\\', '/')})
+            
+            # 🌟 3. 폴더 경로인 경우 (하위 폴더/파일 자동 검색)
+            elif os.path.isdir(path):
+                for root, dirs, files in os.walk(path):
+                    for file_name in files:
+                        if file_name.lower().endswith(valid_exts):
+                            full_file_path = os.path.join(root, file_name)
+                            
+                            # 폴더 내 파일은 [파일명(확장자 제외)]를 기본 제목으로 설정합니다.
+                            file_base_name = os.path.splitext(file_name)[0]
+                            
+                            # 만약 사용자가 '제목' 칸에 무언가 적어뒀다면, 접두사처럼 활용합니다. (예: 마블영화 | 제목 | 자동 | D:\영화 -> [마블영화] 제목 - 아이언맨)
+                            display_title = f"{title} - {file_base_name}" if title else file_base_name
+
+                            file_list.append({
+                                "category": category,
+                                "title": display_title,
+                                "quality": quality,
+                                "path": full_file_path.replace('\\', '/')
+                            })
+                            
         return file_list
     except Exception as e:
         P.logger.error(traceback.format_exc())
