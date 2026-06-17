@@ -41,10 +41,12 @@ class ModuleMain(PluginModuleBase):
     def process_command(self, command, arg1, arg2, arg3, req):
         try:
             if command == "get_list":
-                # 🌟 프론트엔드에서 새로고침 버튼을 눌렀는지(arg1 == "true") 확인합니다.
                 force = (arg1 == "true")
-                list_data = logic.get_media_list(req, force_refresh=force)
+                # 🌟 프론트엔드에서 보낸 탭 이름(arg2)을 받아 스캔 범위로 지정합니다.
+                scan_tgt = arg2 if arg2 else 'all'
+                list_data = logic.get_media_list(req, force_refresh=force, scan_target=scan_tgt)
                 return jsonify({"ret": "success", "list": list_data})
+                
             
             # (기존 refresh_cache 명령은 이제 쓰이지 않지만 호환성을 위해 남겨둡니다)
             if command == "refresh_cache":
