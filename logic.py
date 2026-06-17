@@ -192,9 +192,10 @@ def get_media_files(target_category=None, force_refresh=False):
         P.logger.error(traceback.format_exc())
         return []
 
-def get_media_list(req):
+def get_media_list(req, force_refresh=False):
     try:
-        files = get_media_files('all')
+        # 🌟 파라미터로 받은 강제 새로고침 여부를 넘겨줍니다.
+        files = get_media_files('all', force_refresh=force_refresh)
         result = []
         for idx, item in enumerate(files, 1):
             encoded_payload = f"{item['quality']}||{item['path']}"
