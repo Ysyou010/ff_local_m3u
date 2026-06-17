@@ -8,6 +8,13 @@ from flask import Response, stream_with_context, redirect, send_file
 from framework import SystemModelSetting
 from .setup import P
 
+# 🌟 메모리 캐싱을 위한 전역 변수 설정 (기본 유지시간 1시간)
+_media_cache = {
+    "timestamp": 0,
+    "data": []
+}
+CACHE_DURATION = 3600
+
 def get_apikey():
     try:
         if SystemModelSetting.get_bool("use_apikey"):
