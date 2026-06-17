@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 import traceback
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
@@ -59,10 +60,26 @@ def get_media_files(target_category=None):
         ext_setting = P.ModelSetting.get("extensions")
         valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
         
+        # 🌟 UI 설정창에서 스캔 깊이와 제외 단어 리스트를 가져옵니다.
+        scan_depth = int(P.ModelSetting.get("scan_depth") or "2")
+        exclude_raw = P.ModelSetting.get("exclude_keywords") or ""
+        exclude_keywords = [kw.strip().lower() for kw in exclude_raw.split(",") if kw.strip()]
+        
         file_list = []
         paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
         
+        # 🌟 안전장치 변수 설정
+        MAX_FILES = 100
+        TIME_LIMIT = 5.0
+        start_time = time.time()
+        file_count = 0
+        timeout_reached = False
+        max_reached = False
+        
         for line in paths:
+            if max_reached or timeout_reached:
+                break
+                
             parts = line.split('|')
             if len(parts) >= 4:
                 category = parts[0].strip()
@@ -88,37 +105,68 @@ def get_media_files(target_category=None):
             if target_category and target_category != 'all' and category != target_category:
                 continue
                 
-            # 1. 인터넷 스트리밍 주소
             if path.startswith("http://") or path.startswith("https://"):
-                display_title = title if title else "YouTube Stream"
-                file_list.append({"category": category, "title": display_title, "quality": quality, "path": path})
+                if file_count < MAX_FILES:
+                    display_title = title if title else "YouTube Stream"
+                    file_list.append({"category": category, "title": display_title, "quality": quality, "path": path})
+                    file_count += 1
             
-            # 2. 지정된 단일 파일
             elif os.path.isfile(path):
-                if path.lower().endswith(valid_exts):
+                if path.lower().endswith(valid_exts) and file_count < MAX_FILES:
                     display_title = title if title else os.path.basename(path)
                     file_list.append({"category": category, "title": display_title, "quality": quality, "path": path.replace('\\', '/')})
+                    file_count += 1
             
-            # 🌟 3. 폴더 경로인 경우 (하위 폴더/파일 자동 검색)
+            # 🌟 폴더인 경우 안전장치 적용 스캔
             elif os.path.isdir(path):
+                base_depth = path.rstrip(os.path.sep).count(os.path.sep)
+                
                 for root, dirs, files in os.walk(path):
+                    # 1. 스캔 시간 초과 (5초) 확인
+                    if time.time() - start_time > TIME_LIMIT:
+                        timeout_reached = True
+                        P.logger.warning(f"[스캔 중단] 타임아웃 5초 초과: {path}")
+                        break
+                        
+                    # 2. 스캔 깊이 제한 적용
+                    current_depth = root.rstrip(os.path.sep).count(os.path.sep)
+                    if current_depth - base_depth >= scan_depth:
+                        del dirs[:] # 지정된 깊이에 도달하면 더 이상 하위 폴더로 내려가지 않습니다.
+                        
                     for file_name in files:
+                        # 3. 최대 100개 제한 확인
+                        if file_count >= MAX_FILES:
+                            max_reached = True
+                            P.logger.warning(f"[스캔 중단] 최대 허용 개수(100개) 도달")
+                            break
+                            
                         if file_name.lower().endswith(valid_exts):
-                            full_file_path = os.path.join(root, file_name)
+                            full_file_path = os.path.join(root, file_name).replace('\\', '/')
                             
-                            # 폴더 내 파일은 [파일명(확장자 제외)]를 기본 제목으로 설정합니다.
+                            # 4. 제외 키워드 포함 여부 검사
+                            skip_file = False
+                            for kw in exclude_keywords:
+                                if kw in full_file_path.lower():
+                                    skip_file = True
+                                    break
+                                    
+                            if skip_file:
+                                continue # 금지어가 포함되어 있으면 스킵
+                                
                             file_base_name = os.path.splitext(file_name)[0]
-                            
-                            # 만약 사용자가 '제목' 칸에 무언가 적어뒀다면, 접두사처럼 활용합니다. (예: 마블영화 | 제목 | 자동 | D:\영화 -> [마블영화] 제목 - 아이언맨)
                             display_title = f"{title} - {file_base_name}" if title else file_base_name
 
                             file_list.append({
                                 "category": category,
                                 "title": display_title,
                                 "quality": quality,
-                                "path": full_file_path.replace('\\', '/')
+                                "path": full_file_path
                             })
+                            file_count += 1
                             
+                    if max_reached or timeout_reached:
+                        break
+                        
         return file_list
     except Exception as e:
         P.logger.error(traceback.format_exc())
