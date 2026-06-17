@@ -69,8 +69,8 @@ def get_media_files(target_category=None):
         paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
         
         # 🌟 안전장치 변수 설정
-        MAX_FILES = 100
-        TIME_LIMIT = 5.0
+        MAX_FILES = 200
+        TIME_LIMIT = 10.0
         start_time = time.time()
         file_count = 0
         timeout_reached = False
