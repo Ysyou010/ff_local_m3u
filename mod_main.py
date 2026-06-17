@@ -12,6 +12,8 @@ class ModuleMain(PluginModuleBase):
             "media_path": "",
             "extensions": ".mp4,.mkv,.avi,.ts",
             "category_list": "", 
+            "scan_depth": "2",                       # 기본 스캔 깊이 (2단계)
+            "exclude_keywords": "sample, trailer, \.", # 제외할 단어 기본값 (콤마로 구분)
         }
 
     def plugin_load(self):
