@@ -41,9 +41,12 @@ class ModuleMain(PluginModuleBase):
     def process_command(self, command, arg1, arg2, arg3, req):
         try:
             if command == "get_list":
-                list_data = logic.get_media_list(req)
+                # 🌟 프론트엔드에서 새로고침 버튼을 눌렀는지(arg1 == "true") 확인합니다.
+                force = (arg1 == "true")
+                list_data = logic.get_media_list(req, force_refresh=force)
                 return jsonify({"ret": "success", "list": list_data})
             
+            # (기존 refresh_cache 명령은 이제 쓰이지 않지만 호환성을 위해 남겨둡니다)
             if command == "refresh_cache":
                 logic.get_media_files(target_category='all', force_refresh=True)
                 return jsonify({"ret": "success", "msg": "목록을 다시 스캔하여 갱신했습니다."})
