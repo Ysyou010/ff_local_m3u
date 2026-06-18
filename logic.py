@@ -9,7 +9,6 @@ from flask import Response, stream_with_context, redirect, send_file
 from framework import SystemModelSetting
 from .setup import P
 
-# 🌟 메모리 캐싱 변수
 _media_cache = {
     "timestamp": 0,
     "data": []
@@ -57,7 +56,6 @@ def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
 
-# 🌟 부분 스캔 및 전체 스캔 로직
 def get_media_files(target_category='all', force_refresh=False, scan_target='all'):
     global _media_cache
     try:
@@ -145,48 +143,61 @@ def get_media_files(target_category='all', force_refresh=False, scan_target='all
                         file_list.append({"category": category, "title": display_title, "quality": quality, "path": path.replace('\\', '/')})
                         file_count += 1
                 
+                # 🌟 [성능 최적화] os.walk 대신 os.scandir을 사용하여 클라우드 마운트 디렉토리 탐색 속도 극대화
                 elif os.path.isdir(path):
-                    base_depth = path.rstrip(os.path.sep).count(os.path.sep)
+                    dirs_to_scan = [(path, 0)] # (현재 경로, 깊이)
                     
-                    for root, dirs, files in os.walk(path):
+                    while dirs_to_scan:
                         if time.time() - start_time > TIME_LIMIT:
                             timeout_reached = True
+                            P.logger.warning(f"[스캔 중단] 타임아웃 {TIME_LIMIT}초 초과: {path}")
+                            break
+                        if file_count >= MAX_FILES:
+                            max_reached = True
+                            P.logger.warning(f"[스캔 중단] 최대 허용 개수({MAX_FILES}개) 도달")
                             break
                             
-                        current_depth = root.rstrip(os.path.sep).count(os.path.sep)
-                        if current_depth - base_depth >= scan_depth:
-                            del dirs[:]
-                            
-                        for file_name in files:
-                            if file_count >= MAX_FILES:
-                                max_reached = True
-                                break
-                                
-                            if file_name.lower().endswith(valid_exts):
-                                full_file_path = os.path.join(root, file_name).replace('\\', '/')
-                                
-                                skip_file = False
-                                for kw in exclude_keywords:
-                                    if kw in full_file_path.lower():
-                                        skip_file = True
+                        current_dir, current_depth = dirs_to_scan.pop() 
+                        
+                        try:
+                            with os.scandir(current_dir) as it:
+                                for entry in it:
+                                    if time.time() - start_time > TIME_LIMIT:
+                                        timeout_reached = True
+                                        break
+                                    if file_count >= MAX_FILES:
+                                        max_reached = True
                                         break
                                         
-                                if skip_file:
-                                    continue
-                                    
-                                file_base_name = os.path.splitext(file_name)[0]
-                                display_title = f"{title} - {file_base_name}" if title else file_base_name
+                                    if entry.is_file() and entry.name.lower().endswith(valid_exts):
+                                        full_file_path = entry.path.replace('\\', '/')
+                                        
+                                        skip_file = False
+                                        for kw in exclude_keywords:
+                                            if kw in full_file_path.lower():
+                                                skip_file = True
+                                                break
+                                                
+                                        if not skip_file:
+                                            file_base_name = os.path.splitext(entry.name)[0]
+                                            display_title = f"{title} - {file_base_name}" if title else file_base_name
 
-                                file_list.append({
-                                    "category": category,
-                                    "title": display_title,
-                                    "quality": quality,
-                                    "path": full_file_path
-                                })
-                                file_count += 1
-                                
-                        if max_reached or timeout_reached:
-                            break
+                                            file_list.append({
+                                                "category": category,
+                                                "title": display_title,
+                                                "quality": quality,
+                                                "path": full_file_path
+                                            })
+                                            file_count += 1
+                                            
+                                    elif entry.is_dir() and current_depth < scan_depth:
+                                        dirs_to_scan.append((entry.path, current_depth + 1))
+                                        
+                        except PermissionError:
+                            continue
+                        except Exception as e:
+                            P.logger.error(f"Scandir Error: {e}")
+                            continue
             
             _media_cache["data"] = preserved_data + file_list
             _media_cache["timestamp"] = time.time()
