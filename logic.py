@@ -13,7 +13,7 @@ _media_cache = {
     "timestamp": 0,
     "data": []
 }
-CACHE_DURATION = 3600  
+CACHE_DURATION = 43200  # 12시간
 
 def get_apikey():
     try:
@@ -55,6 +55,10 @@ def _safe_b64encode(text):
 def _safe_b64decode(text):
     padding = '=' * (-len(str(text)) % 4)
     return urlsafe_b64decode((str(text) + padding).encode('utf-8')).decode('utf-8')
+
+def invalidate_cache():
+    global _media_cache
+    _media_cache["timestamp"] = 0
 
 def get_media_files(target_category='all', force_refresh=False, scan_target='all'):
     global _media_cache
@@ -423,6 +427,42 @@ def play_subtitle(encoded_name):
     except Exception as e:
         P.logger.error(f"[자막 에러] {str(e)}")
         return Response("Subtitle Error", status=500)
+
+def add_media_item(category, title, quality, path):
+    global _media_cache
+    try:
+        path = path.strip()
+        new_line = f"{category} | {title} | {quality} | {path}"
+
+        media_path_raw = P.ModelSetting.get("media_path") or ""
+        new_media_path = f"{media_path_raw}\n{new_line}" if media_path_raw.strip() else new_line
+        P.ModelSetting.set("media_path", new_media_path)
+
+        is_folder = not (path.startswith("http://") or path.startswith("https://")) and os.path.isdir(path)
+
+        if is_folder:
+            # 폴더는 내부 파일 목록을 알 수 없으므로 캐시를 무효화해 다음 조회 때 전체 재스캔되게 한다.
+            invalidate_cache()
+            P.logger.info(f"[폴더 추가] 다음 목록 조회 시 전체 재스캔됩니다: {path}")
+        else:
+            # 파일/유튜브 URL 단건 추가는 폴더 스캔 없이 캐시에 바로 반영한다.
+            ext_setting = P.ModelSetting.get("extensions")
+            valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
+            is_url = path.startswith("http://") or path.startswith("https://")
+
+            if is_url or path.lower().endswith(valid_exts):
+                _media_cache["data"].append({
+                    "category": category,
+                    "title": title,
+                    "quality": quality,
+                    "path": path.replace('\\', '/')
+                })
+                P.logger.info(f"[빠른 추가] 폴더 스캔 없이 캐시에 항목만 추가: {path}")
+
+        return True
+    except Exception as e:
+        P.logger.error(traceback.format_exc())
+        return False
 
 def edit_media_item(idx, category, title, quality, path):
     try:
