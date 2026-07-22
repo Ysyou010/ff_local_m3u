@@ -224,7 +224,9 @@ $("body").on('click', '.play_btn', function(e){
     
     // 대소문자 무시하고 MP4 포맷인지 확인
     var isMp4 = url.toLowerCase().indexOf("ext=.mp4") !== -1;
-    
+    // 로컬 파일 여부 (서버가 mp4가 아닌 로컬 파일은 fragmented mp4로 리먹싱해서 보내준다)
+    var isLocal = url.toLowerCase().indexOf("local=1") !== -1;
+
     // 크롬 등 브라우저 내장 플레이어는 mp4 확장자만 네이티브로 재생 가능합니다. (.mkv, .ts 등은 불가)
     if (isMp4) {
         if (wantPlay.is(nowPlaying)) {
@@ -267,7 +269,8 @@ $("body").on('click', '.play_btn', function(e){
         form.target = 'play_popup'; 
         $('#play_title').val(name);
         $('#play_source_src').val(url);
-        $('#play_source_type').val('video/mp2t'); 
+        // 로컬 파일은 서버에서 fragmented mp4로 리먹싱해서 보내주고, 유튜브 스트림은 기존처럼 mpegts/mkv로 온다.
+        $('#play_source_type').val(isLocal ? 'video/mp4' : 'video/mp2t');
         form.submit();
     }
 });
