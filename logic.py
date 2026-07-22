@@ -150,7 +150,8 @@ def get_media_files(target_category='all', force_refresh=False, scan_target='all
                 # 🌟 [성능 최적화] os.walk 대신 os.scandir을 사용하여 클라우드 마운트 디렉토리 탐색 속도 극대화
                 elif os.path.isdir(path):
                     dirs_to_scan = [(path, 0)] # (현재 경로, 깊이)
-                    
+                    entries_since_check = 0
+
                     while dirs_to_scan:
                         if time.time() - start_time > TIME_LIMIT:
                             timeout_reached = True
@@ -160,15 +161,19 @@ def get_media_files(target_category='all', force_refresh=False, scan_target='all
                             max_reached = True
                             P.logger.warning(f"[스캔 중단] 최대 허용 개수({MAX_FILES}개) 도달")
                             break
-                            
-                        current_dir, current_depth = dirs_to_scan.pop() 
-                        
+
+                        current_dir, current_depth = dirs_to_scan.pop()
+
                         try:
                             with os.scandir(current_dir) as it:
                                 for entry in it:
-                                    if time.time() - start_time > TIME_LIMIT:
-                                        timeout_reached = True
-                                        break
+                                    # 🌟 [성능 최적화] time.time() 호출을 매 엔트리마다 하지 않고 200개마다 체크
+                                    entries_since_check += 1
+                                    if entries_since_check >= 200:
+                                        entries_since_check = 0
+                                        if time.time() - start_time > TIME_LIMIT:
+                                            timeout_reached = True
+                                            break
                                     if file_count >= MAX_FILES:
                                         max_reached = True
                                         break
@@ -195,7 +200,10 @@ def get_media_files(target_category='all', force_refresh=False, scan_target='all
                                             file_count += 1
                                             
                                     elif entry.is_dir() and current_depth < scan_depth:
-                                        dirs_to_scan.append((entry.path, current_depth + 1))
+                                        # 🌟 [I/O 최적화] 제외 키워드에 해당하는 폴더는 scandir로 열어보지 않고 건너뜀
+                                        dir_path_lower = entry.path.lower()
+                                        if not any(kw in dir_path_lower for kw in exclude_keywords):
+                                            dirs_to_scan.append((entry.path, current_depth + 1))
                                         
                         except PermissionError:
                             continue
