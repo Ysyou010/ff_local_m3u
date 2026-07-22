@@ -2,6 +2,7 @@ import os
 import subprocess
 import traceback
 import time
+import threading
 import mimetypes
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
@@ -13,6 +14,7 @@ _media_cache = {
     "timestamp": 0,
     "data": []
 }
+_media_cache_lock = threading.Lock()
 CACHE_DURATION = 43200  # 12시간
 
 def get_apikey():
@@ -68,151 +70,158 @@ def get_media_files(target_category='all', force_refresh=False, scan_target='all
         needs_scan = force_refresh or not _media_cache.get("data") or (current_time - _media_cache.get("timestamp", 0) >= CACHE_DURATION)
         
         if needs_scan:
-            preserved_data = []
-            
-            if force_refresh and scan_target not in ['all', '전체'] and _media_cache.get("data"):
-                preserved_data = [x for x in _media_cache["data"] if x['category'] != scan_target]
-                P.logger.info(f"[{scan_target}] 카테고리만 부분 스캔하여 캐시를 갱신합니다.")
-            else:
-                scan_target = 'all'
-                P.logger.info("미디어 전체를 새로 스캔하여 캐시를 갱신합니다.")
-            
-            media_path_raw = P.ModelSetting.get("media_path")
-            if not media_path_raw:
-                return []
-                
-            ext_setting = P.ModelSetting.get("extensions")
-            valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
-            
-            scan_depth = int(P.ModelSetting.get("scan_depth") or "2")
-            exclude_raw = P.ModelSetting.get("exclude_keywords") or ""
-            exclude_keywords = [kw.strip().lower() for kw in exclude_raw.split(",") if kw.strip()]
-            
-            try:
-                MAX_FILES = int(P.ModelSetting.get("scan_max_files") or "100")
-            except:
-                MAX_FILES = 100
-                
-            try:
-                TIME_LIMIT = float(P.ModelSetting.get("scan_timeout") or "5.0")
-            except:
-                TIME_LIMIT = 5.0
-                
-            file_list = []
-            paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
-            
-            start_time = time.time()
-            file_count = 0
-            timeout_reached = False
-            max_reached = False
-            
-            for line in paths:
-                if max_reached or timeout_reached:
-                    break
-                    
-                parts = line.split('|')
-                if len(parts) >= 4:
-                    category = parts[0].strip()
-                    title = parts[1].strip()
-                    quality = parts[2].strip()
-                    path = "|".join(parts[3:]).strip()
-                elif len(parts) == 3:
-                    category = parts[0].strip()
-                    title = parts[1].strip()
-                    quality = "자동"
-                    path = "|".join(parts[2:]).strip()
-                elif len(parts) == 2:
-                    category = "기본"
-                    title = parts[0].strip()
-                    quality = "자동"
-                    path = parts[1].strip()
-                else:
-                    category = "기본"
-                    title = ""
-                    quality = "자동"
-                    path = line.strip()
+            # 🌟 [중복 스캔 방지] 캐시 만료 직후 여러 요청이 몰려도 스캔은 한 번만 수행하고 나머지는 결과를 재사용한다.
+            with _media_cache_lock:
+                current_time = time.time()
+                if not force_refresh and _media_cache.get("data") and (current_time - _media_cache.get("timestamp", 0) < CACHE_DURATION):
+                    needs_scan = False
 
-                if scan_target != 'all' and category != scan_target:
-                    continue
-                    
-                if path.startswith("http://") or path.startswith("https://"):
-                    if file_count < MAX_FILES:
-                        display_title = title if title else "YouTube Stream"
-                        file_list.append({"category": category, "title": display_title, "quality": quality, "path": path})
-                        file_count += 1
-                
-                elif os.path.isfile(path):
-                    if path.lower().endswith(valid_exts) and file_count < MAX_FILES:
-                        display_title = title if title else os.path.basename(path)
-                        file_list.append({"category": category, "title": display_title, "quality": quality, "path": path.replace('\\', '/')})
-                        file_count += 1
-                
-                # 🌟 [성능 최적화] os.walk 대신 os.scandir을 사용하여 클라우드 마운트 디렉토리 탐색 속도 극대화
-                elif os.path.isdir(path):
-                    dirs_to_scan = [(path, 0)] # (현재 경로, 깊이)
-                    entries_since_check = 0
+                if needs_scan:
+                    preserved_data = []
 
-                    while dirs_to_scan:
-                        if time.time() - start_time > TIME_LIMIT:
-                            timeout_reached = True
-                            P.logger.warning(f"[스캔 중단] 타임아웃 {TIME_LIMIT}초 초과: {path}")
-                            break
-                        if file_count >= MAX_FILES:
-                            max_reached = True
-                            P.logger.warning(f"[스캔 중단] 최대 허용 개수({MAX_FILES}개) 도달")
+                    if force_refresh and scan_target not in ['all', '전체'] and _media_cache.get("data"):
+                        preserved_data = [x for x in _media_cache["data"] if x['category'] != scan_target]
+                        P.logger.info(f"[{scan_target}] 카테고리만 부분 스캔하여 캐시를 갱신합니다.")
+                    else:
+                        scan_target = 'all'
+                        P.logger.info("미디어 전체를 새로 스캔하여 캐시를 갱신합니다.")
+
+                    media_path_raw = P.ModelSetting.get("media_path")
+                    if not media_path_raw:
+                        return []
+
+                    ext_setting = P.ModelSetting.get("extensions")
+                    valid_exts = tuple([x.strip().lower() for x in ext_setting.split(",")])
+
+                    scan_depth = int(P.ModelSetting.get("scan_depth") or "2")
+                    exclude_raw = P.ModelSetting.get("exclude_keywords") or ""
+                    exclude_keywords = [kw.strip().lower() for kw in exclude_raw.split(",") if kw.strip()]
+
+                    try:
+                        MAX_FILES = int(P.ModelSetting.get("scan_max_files") or "100")
+                    except:
+                        MAX_FILES = 100
+
+                    try:
+                        TIME_LIMIT = float(P.ModelSetting.get("scan_timeout") or "5.0")
+                    except:
+                        TIME_LIMIT = 5.0
+
+                    file_list = []
+                    paths = [p.strip() for p in media_path_raw.split('\n') if p.strip()]
+
+                    start_time = time.time()
+                    file_count = 0
+                    timeout_reached = False
+                    max_reached = False
+
+                    for line in paths:
+                        if max_reached or timeout_reached:
                             break
 
-                        current_dir, current_depth = dirs_to_scan.pop()
+                        parts = line.split('|')
+                        if len(parts) >= 4:
+                            category = parts[0].strip()
+                            title = parts[1].strip()
+                            quality = parts[2].strip()
+                            path = "|".join(parts[3:]).strip()
+                        elif len(parts) == 3:
+                            category = parts[0].strip()
+                            title = parts[1].strip()
+                            quality = "자동"
+                            path = "|".join(parts[2:]).strip()
+                        elif len(parts) == 2:
+                            category = "기본"
+                            title = parts[0].strip()
+                            quality = "자동"
+                            path = parts[1].strip()
+                        else:
+                            category = "기본"
+                            title = ""
+                            quality = "자동"
+                            path = line.strip()
 
-                        try:
-                            with os.scandir(current_dir) as it:
-                                for entry in it:
-                                    # 🌟 [성능 최적화] time.time() 호출을 매 엔트리마다 하지 않고 200개마다 체크
-                                    entries_since_check += 1
-                                    if entries_since_check >= 200:
-                                        entries_since_check = 0
-                                        if time.time() - start_time > TIME_LIMIT:
-                                            timeout_reached = True
-                                            break
-                                    if file_count >= MAX_FILES:
-                                        max_reached = True
-                                        break
-                                        
-                                    if entry.is_file() and entry.name.lower().endswith(valid_exts):
-                                        full_file_path = entry.path.replace('\\', '/')
-                                        
-                                        skip_file = False
-                                        for kw in exclude_keywords:
-                                            if kw in full_file_path.lower():
-                                                skip_file = True
+                        if scan_target != 'all' and category != scan_target:
+                            continue
+
+                        if path.startswith("http://") or path.startswith("https://"):
+                            if file_count < MAX_FILES:
+                                display_title = title if title else "YouTube Stream"
+                                file_list.append({"category": category, "title": display_title, "quality": quality, "path": path})
+                                file_count += 1
+
+                        elif os.path.isfile(path):
+                            if path.lower().endswith(valid_exts) and file_count < MAX_FILES:
+                                display_title = title if title else os.path.basename(path)
+                                file_list.append({"category": category, "title": display_title, "quality": quality, "path": path.replace('\\', '/')})
+                                file_count += 1
+
+                        # 🌟 [성능 최적화] os.walk 대신 os.scandir을 사용하여 클라우드 마운트 디렉토리 탐색 속도 극대화
+                        elif os.path.isdir(path):
+                            dirs_to_scan = [(path, 0)] # (현재 경로, 깊이)
+                            entries_since_check = 0
+
+                            while dirs_to_scan:
+                                if time.time() - start_time > TIME_LIMIT:
+                                    timeout_reached = True
+                                    P.logger.warning(f"[스캔 중단] 타임아웃 {TIME_LIMIT}초 초과: {path}")
+                                    break
+                                if file_count >= MAX_FILES:
+                                    max_reached = True
+                                    P.logger.warning(f"[스캔 중단] 최대 허용 개수({MAX_FILES}개) 도달")
+                                    break
+
+                                current_dir, current_depth = dirs_to_scan.pop()
+
+                                try:
+                                    with os.scandir(current_dir) as it:
+                                        for entry in it:
+                                            # 🌟 [성능 최적화] time.time() 호출을 매 엔트리마다 하지 않고 200개마다 체크
+                                            entries_since_check += 1
+                                            if entries_since_check >= 200:
+                                                entries_since_check = 0
+                                                if time.time() - start_time > TIME_LIMIT:
+                                                    timeout_reached = True
+                                                    break
+                                            if file_count >= MAX_FILES:
+                                                max_reached = True
                                                 break
-                                                
-                                        if not skip_file:
-                                            file_base_name = os.path.splitext(entry.name)[0]
-                                            display_title = f"{title} - {file_base_name}" if title else file_base_name
 
-                                            file_list.append({
-                                                "category": category,
-                                                "title": display_title,
-                                                "quality": quality,
-                                                "path": full_file_path
-                                            })
-                                            file_count += 1
-                                            
-                                    elif entry.is_dir() and current_depth < scan_depth:
-                                        # 🌟 [I/O 최적화] 제외 키워드에 해당하는 폴더는 scandir로 열어보지 않고 건너뜀
-                                        dir_path_lower = entry.path.lower()
-                                        if not any(kw in dir_path_lower for kw in exclude_keywords):
-                                            dirs_to_scan.append((entry.path, current_depth + 1))
-                                        
-                        except PermissionError:
-                            continue
-                        except Exception as e:
-                            P.logger.error(f"Scandir Error: {e}")
-                            continue
-            
-            _media_cache["data"] = preserved_data + file_list
-            _media_cache["timestamp"] = time.time()
+                                            if entry.is_file() and entry.name.lower().endswith(valid_exts):
+                                                full_file_path = entry.path.replace('\\', '/')
+
+                                                skip_file = False
+                                                for kw in exclude_keywords:
+                                                    if kw in full_file_path.lower():
+                                                        skip_file = True
+                                                        break
+
+                                                if not skip_file:
+                                                    file_base_name = os.path.splitext(entry.name)[0]
+                                                    display_title = f"{title} - {file_base_name}" if title else file_base_name
+
+                                                    file_list.append({
+                                                        "category": category,
+                                                        "title": display_title,
+                                                        "quality": quality,
+                                                        "path": full_file_path
+                                                    })
+                                                    file_count += 1
+
+                                            elif entry.is_dir() and current_depth < scan_depth:
+                                                # 🌟 [I/O 최적화] 제외 키워드에 해당하는 폴더는 scandir로 열어보지 않고 건너뜀
+                                                dir_path_lower = entry.path.lower()
+                                                if not any(kw in dir_path_lower for kw in exclude_keywords):
+                                                    dirs_to_scan.append((entry.path, current_depth + 1))
+
+                                except PermissionError:
+                                    continue
+                                except Exception as e:
+                                    P.logger.error(f"Scandir Error: {e}")
+                                    continue
+
+                    _media_cache["data"] = preserved_data + file_list
+                    _media_cache["timestamp"] = time.time()
         
         if target_category and target_category not in ['all', '전체']:
             return [x for x in _media_cache["data"] if x['category'] == target_category]
