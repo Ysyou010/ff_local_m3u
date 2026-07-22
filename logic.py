@@ -323,8 +323,7 @@ def play_ffmpeg_copy(encoded_name):
             P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송 (구간 탐색 가능): {full_path}")
             response = send_file(full_path, mimetype=mime_type, conditional=True)
             response.headers['Access-Control-Allow-Origin'] = '*'
-            # VOD는 정적 파일이므로 매 요청 재검증을 강제하지 않고 캐싱을 허용해 탐색/재생 반응 속도를 높인다.
-            response.headers['Cache-Control'] = 'public, max-age=86400'
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
             
         else:
