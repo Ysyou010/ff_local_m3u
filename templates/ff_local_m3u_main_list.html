@@ -128,6 +128,12 @@ $("body").on('click', '#btn_refresh_cache_list', function(e){
     });
 });
 
+function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, function(ch) {
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+    });
+}
+
 function extractCategories() {
     var catSet = new Set();
     catSet.add("전체");
@@ -188,14 +194,14 @@ function make_list() {
         html += '<td style="text-align:center; vertical-align:middle;">' + count + '</td>';
         html += '<td style="vertical-align:middle;">';
         if (current_category === "전체") {
-            html += '<span class="badge badge-info mr-2">' + item.category + '</span>';
+            html += '<span class="badge badge-info mr-2">' + escapeHtml(item.category) + '</span>';
         }
-        html += '<strong>' + item.display_title + '</strong>';
+        html += '<strong>' + escapeHtml(item.display_title) + '</strong>';
         html += '</td>';
         html += '<td style="text-align:center; vertical-align:middle;">';
         html += '<div class="btn-group" role="group">';
-        html += '<button class="btn btn-sm btn-outline-success play_btn" data-url="' + item.url + '" data-name="' + item.display_title + '"><i class="fa fa-play"></i> 재생</button>';
-        html += '<button class="btn btn-sm btn-outline-secondary copy_btn" data-url="' + item.url + '"><i class="fa fa-clipboard"></i> 주소</button>';
+        html += '<button class="btn btn-sm btn-outline-success play_btn" data-url="' + escapeHtml(item.url) + '" data-name="' + escapeHtml(item.display_title) + '"><i class="fa fa-play"></i> 재생</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary copy_btn" data-url="' + escapeHtml(item.url) + '"><i class="fa fa-clipboard"></i> 주소</button>';
         html += '</div>';
         html += '</td>';
         html += '</tr>';
