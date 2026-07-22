@@ -53,6 +53,14 @@ class ModuleMain(PluginModuleBase):
                 logic.get_media_files(target_category='all', force_refresh=True)
                 return jsonify({"ret": "success", "msg": "목록을 다시 스캔하여 갱신했습니다."})
             
+            if command == "add_item":
+                data = json.loads(arg1)
+                ret = logic.add_media_item(data['category'], data['title'], data['quality'], data['path'])
+                if ret:
+                    return jsonify({"ret": "success", "msg": "추가되었습니다."})
+                else:
+                    return jsonify({"ret": "error", "msg": "추가에 실패했습니다."})
+
             if command == "edit_item":
                 data = json.loads(arg1)
                 ret = logic.edit_media_item(int(data['idx']), data['category'], data['title'], data['quality'], data['path'])
@@ -61,7 +69,13 @@ class ModuleMain(PluginModuleBase):
                 else:
                     return jsonify({"ret": "error", "msg": "저장에 실패했습니다."})
             
-            return super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
+            ret = super(ModuleMain, self).process_command(command, arg1, arg2, arg3, req)
+            if command == "setting_save":
+                # 재생목록 삭제/수정/이동, 카테고리 변경 시(autoSaveList)도 이 경로를 타므로
+                # 캐시를 무효화해 다음 목록 조회 때 자동으로 재스캔되게 한다.
+                # (단건 추가는 add_item 명령이 별도로 처리하여 폴더 스캔을 생략한다)
+                logic.invalidate_cache()
+            return ret
                 
         except Exception as e:
             P.logger.error(traceback.format_exc())
