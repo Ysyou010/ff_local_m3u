@@ -239,13 +239,14 @@ def get_media_list(req, force_refresh=False, scan_target='all'):
             encoded_payload = f"{item['quality']}||{item['path']}"
             encoded_name = _safe_b64encode(encoded_payload)
             
-            if not item['path'].startswith('http'):
+            is_local = not item['path'].startswith('http')
+            if is_local:
                 ext = os.path.splitext(item['path'])[1].lower()
             else:
                 ext = '.mp4' if item['quality'] in ["720p", "480p", "360p", "240p", "144p"] else '.ts'
-                
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
-            
+
+            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext, "local": "1" if is_local else "0"})
+
             display_name = f"[{item['category']}] {item['title']}"
             result.append({
                 "idx": idx,
@@ -328,13 +329,25 @@ def play_ffmpeg_copy(encoded_name):
             mime_type, _ = mimetypes.guess_type(full_path)
             if not mime_type:
                 mime_type = 'video/mp4'
-                
-            P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송 (구간 탐색 가능): {full_path}")
-            response = send_file(full_path, mimetype=mime_type, conditional=True)
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            return response
-            
+
+            if mime_type == 'video/mp4':
+                P.logger.info(f"[재생 시작] 로컬 파일 다이렉트 전송 (구간 탐색 가능): {full_path}")
+                response = send_file(full_path, mimetype=mime_type, conditional=True)
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                return response
+
+            # 🌟 mp4가 아닌 로컬 파일(mkv, avi 등)은 브라우저가 컨테이너 자체를 열 수 없으므로
+            # 코덱은 그대로 두고(재인코딩 없음) 컨테이너만 fragmented mp4로 리먹싱해서 스트리밍한다. (구간 탐색 불가)
+            P.logger.info(f"[재생 시작] 로컬 파일 mp4 컨테이너 리먹싱 스트리밍: {full_path}")
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
+                   "-i", full_path,
+                   "-map", "0:v:0?", "-map", "0:a:0?",
+                   "-c:v", "copy", "-c:a", "copy",
+                   "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                   "-"]
+            mimetype = "video/mp4"
+
         else:
             P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
             try:
