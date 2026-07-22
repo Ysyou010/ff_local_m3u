@@ -363,13 +363,19 @@ function addPath(newCategory, newTitle, newQuality, newPath) {
     
     pathArray.push({category: newCategory, title: newTitle, quality: newQuality, path: newPath});
     renderList();
-    
+
     $('#new_path_input').val('');
     $('#new_title_input').val('');
     $('#new_quality_select').val('자동');
-    $('#new_path_input').focus(); 
-    
-    autoSaveList();
+    $('#new_path_input').focus();
+
+    // 🌟 add_item: 파일/URL 단건은 폴더 스캔 없이 캐시에 바로 반영되고,
+    // 폴더는 다음 목록 조회 시 자동으로 전체 재스캔되도록 서버에서 분기 처리합니다.
+    globalSendCommand('add_item', JSON.stringify({category: newCategory, title: newTitle, quality: newQuality, path: newPath}), null, null, function(data) {
+        if (data.ret !== 'success') {
+            notify('저장 실패: ' + data.msg, 'warning');
+        }
+    });
 }
 
 $(document).ready(function(){
