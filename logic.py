@@ -319,7 +319,7 @@ def make_m3u(req):
             else:
                 ext = '.mp4' if item['quality'] in ["720p", "480p", "360p", "240p", "144p"] else '.ts'
                 
-            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext})
+            play_url = get_api_url(req, "play", {"file": encoded_name, "ext": ext, "local": "0" if item['path'].startswith('http') else "1"})
             
             display_name = item['title']
 
