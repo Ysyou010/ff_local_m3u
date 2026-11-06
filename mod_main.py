@@ -23,6 +23,7 @@ class ModuleMain(PluginModuleBase):
         P.logger.info("Local Media M3U Plugin Loaded")
         # ffmpeg가 없는 환경(새 컨테이너 등)이면 백그라운드에서 자동 설치
         threading.Thread(target=logic.ensure_ffmpeg, daemon=True).start()
+        threading.Thread(target=logic.hls_vod.cleanup, daemon=True).start()
 
     def process_menu(self, sub, req):
         try:
@@ -102,6 +103,12 @@ class ModuleMain(PluginModuleBase):
                     return Response("play_ffmpeg_copy 반환값 없음", status=500)
                 return ret
             
+            if sub == "hls":
+                return logic.play_hls_playlist(req.args.get("key", ""))
+
+            if sub == "hls_seg":
+                return logic.play_hls_segment(req.args.get("key", ""), req.args.get("name", ""))
+
             if sub == "subtitle":
                 encoded_name = req.args.get("file")
                 if not encoded_name:
