@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import traceback
 import time
@@ -16,6 +17,41 @@ _media_cache = {
 }
 _media_cache_lock = threading.Lock()
 CACHE_DURATION = 43200  # 12시간
+
+_ffmpeg_install_lock = threading.Lock()
+
+def ensure_ffmpeg():
+    """ffmpeg가 없으면 apt-get으로 자동 설치한다. (도커 root 환경 전용) 사용 가능 여부를 반환"""
+    if shutil.which("ffmpeg"):
+        return True
+    # 이미 다른 스레드에서 설치 중이면 기다리지 않고 바로 반환
+    if not _ffmpeg_install_lock.acquire(blocking=False):
+        return False
+    try:
+        if shutil.which("ffmpeg"):
+            return True
+        if not shutil.which("apt-get") or os.geteuid() != 0:
+            P.logger.error("[ffmpeg] ffmpeg가 없고 자동 설치가 불가능한 환경입니다. 직접 설치해 주세요.")
+            return False
+        P.logger.warning("[ffmpeg] ffmpeg가 없어 자동 설치를 시작합니다. (apt-get install ffmpeg)")
+        env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+        for cmd in (["apt-get", "update"], ["apt-get", "install", "-y", "ffmpeg"]):
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, timeout=900)
+            if result.returncode != 0:
+                output = result.stdout.decode("utf-8", "ignore")[-1000:]
+                P.logger.error(f"[ffmpeg] 자동 설치 실패 ({' '.join(cmd)}):\n{output}")
+                return False
+        if shutil.which("ffmpeg"):
+            P.logger.info(f"[ffmpeg] 자동 설치 완료: {shutil.which('ffmpeg')}")
+            return True
+        P.logger.error("[ffmpeg] 설치 후에도 ffmpeg를 찾을 수 없습니다.")
+        return False
+    except Exception as e:
+        P.logger.error(f"[ffmpeg] 자동 설치 에러: {e}")
+        P.logger.error(traceback.format_exc())
+        return False
+    finally:
+        _ffmpeg_install_lock.release()
 
 def get_apikey():
     try:
@@ -417,6 +453,13 @@ def play_ffmpeg_copy(encoded_name):
                 P.logger.error(traceback.format_exc())
                 return Response(f"유튜브 에러: {e}", status=500)
         
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            threading.Thread(target=ensure_ffmpeg, daemon=True).start()
+            P.logger.error("[재생 실패] ffmpeg가 설치되어 있지 않습니다. 자동 설치를 시도하니 잠시 후 다시 재생해 주세요.")
+            return Response("ffmpeg not installed (auto-install in progress, retry later)", status=503)
+        cmd[0] = ffmpeg_path
+
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         
         @stream_with_context
