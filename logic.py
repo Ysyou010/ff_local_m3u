@@ -379,7 +379,8 @@ def play_ffmpeg_copy(encoded_name):
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
                    "-i", full_path,
                    "-map", "0:v:0?", "-map", "0:a:0?",
-                   "-c:v", "copy", "-c:a", "copy",
+                   # 오디오는 AAC로 변환 (EAC3/DTS 등은 fragmented mp4 헤더를 못 쓰고 브라우저도 재생 불가)
+                   "-c:v", "copy", "-c:a", "aac", "-ac", "2", "-b:a", "192k",
                    "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof",
                    "-"]
             mimetype = "video/mp4"
