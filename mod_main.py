@@ -1,5 +1,6 @@
 import traceback
 import json
+import threading
 from flask import Response, request, jsonify, render_template
 from .setup import *
 from . import logic
@@ -20,6 +21,8 @@ class ModuleMain(PluginModuleBase):
 
     def plugin_load(self):
         P.logger.info("Local Media M3U Plugin Loaded")
+        # ffmpeg가 없는 환경(새 컨테이너 등)이면 백그라운드에서 자동 설치
+        threading.Thread(target=logic.ensure_ffmpeg, daemon=True).start()
 
     def process_menu(self, sub, req):
         try:
