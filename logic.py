@@ -7,9 +7,10 @@ import threading
 import mimetypes
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from urllib.parse import urlencode
-from flask import Response, stream_with_context, redirect, send_file
+from flask import Response, stream_with_context, redirect, send_file, request
 from framework import SystemModelSetting
 from .setup import P
+from . import hls_vod
 
 _media_cache = {
     "timestamp": 0,
@@ -52,6 +53,11 @@ def ensure_ffmpeg():
         return False
     finally:
         _ffmpeg_install_lock.release()
+
+def _ffmpeg_not_installed_response():
+    threading.Thread(target=ensure_ffmpeg, daemon=True).start()
+    P.logger.error("[재생 실패] ffmpeg가 설치되어 있지 않습니다. 자동 설치를 시도하니 잠시 후 다시 재생해 주세요.")
+    return Response("ffmpeg not installed (auto-install in progress, retry later)", status=503)
 
 def get_apikey():
     try:
@@ -373,17 +379,16 @@ def play_ffmpeg_copy(encoded_name):
                 response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                 return response
 
-            # 🌟 mp4가 아닌 로컬 파일(mkv, avi 등)은 브라우저가 컨테이너 자체를 열 수 없으므로
-            # 코덱은 그대로 두고(재인코딩 없음) 컨테이너만 fragmented mp4로 리먹싱해서 스트리밍한다. (구간 탐색 불가)
-            P.logger.info(f"[재생 시작] 로컬 파일 mp4 컨테이너 리먹싱 스트리밍: {full_path}")
-            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
-                   "-i", full_path,
-                   "-map", "0:v:0?", "-map", "0:a:0?",
-                   # 오디오는 AAC로 변환 (EAC3/DTS 등은 fragmented mp4 헤더를 못 쓰고 브라우저도 재생 불가)
-                   "-c:v", "copy", "-c:a", "aac", "-ac", "2", "-b:a", "192k",
-                   "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-                   "-"]
-            mimetype = "video/mp4"
+            # 🌟 mp4가 아닌 로컬 파일(mkv, avi 등)은 HLS로 변환해서 재생한다. (구간 이동 가능)
+            # 비디오는 복사, 오디오만 AAC로 변환 (EAC3/DTS 등은 브라우저가 재생 불가)
+            ffmpeg_path = shutil.which("ffmpeg")
+            if not ffmpeg_path:
+                return _ffmpeg_not_installed_response()
+            P.logger.info(f"[재생 시작] 로컬 파일 HLS 변환 스트리밍 (구간 이동 가능): {full_path}")
+            key = hls_vod.start(full_path, ffmpeg_path)
+            if not key:
+                return Response("HLS 변환 실패 (로그 확인)", status=500)
+            return redirect(get_api_url(request, "hls", {"key": key}), code=302)
 
         else:
             P.logger.info(f"[재생 요청] YouTube: {full_path} (요청 화질: {quality})")
@@ -456,9 +461,7 @@ def play_ffmpeg_copy(encoded_name):
         
         ffmpeg_path = shutil.which("ffmpeg")
         if not ffmpeg_path:
-            threading.Thread(target=ensure_ffmpeg, daemon=True).start()
-            P.logger.error("[재생 실패] ffmpeg가 설치되어 있지 않습니다. 자동 설치를 시도하니 잠시 후 다시 재생해 주세요.")
-            return Response("ffmpeg not installed (auto-install in progress, retry later)", status=503)
+            return _ffmpeg_not_installed_response()
         cmd[0] = ffmpeg_path
 
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
@@ -487,6 +490,12 @@ def play_ffmpeg_copy(encoded_name):
         P.logger.error(f"[재생 에러] {str(e)}")
         P.logger.error(traceback.format_exc())
         return Response("Playback Error", status=500)
+
+def play_hls_playlist(key):
+    return hls_vod.playlist(key, lambda name: get_api_url(request, "hls_seg", {"key": key, "name": name}))
+
+def play_hls_segment(key, name):
+    return hls_vod.segment(key, name)
 
 def play_subtitle(encoded_name):
     try:
